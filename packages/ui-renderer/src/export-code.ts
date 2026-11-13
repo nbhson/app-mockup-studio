@@ -123,7 +123,10 @@ function kebabCase(key: string): string {
 
 function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
   const base = baseStyles(el);
-  const children = (el.children ?? []).map((child) => buildTree(child, options));
+  // Hidden layers are editor-only state; generated code must not emit them.
+  const children = (el.children ?? [])
+    .filter((child) => !child.hidden)
+    .map((child) => buildTree(child, options));
 
   switch (el.type) {
     case "basic.button":

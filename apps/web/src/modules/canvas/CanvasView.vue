@@ -596,6 +596,11 @@ function onDropOn(targetId: string) {
     doc.setSelection([node.id], node.id);
   } else {
     const { nodeId } = payload;
+    // Dropping a node onto itself is meaningless (and would detach it).
+    if (nodeId === targetId) {
+      editor.clearDrag();
+      return;
+    }
     // Dragging any node of a multi-selection moves the whole group (P2.3).
     const group =
       doc.selectedIds.includes(nodeId) && doc.selectedIds.length > 1

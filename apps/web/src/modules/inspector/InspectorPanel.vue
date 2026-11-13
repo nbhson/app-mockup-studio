@@ -91,10 +91,9 @@ function commitTheme(partial: Partial<Theme>, description: string) {
 }
 
 function onThemeColor(key: keyof Theme, e: Event) {
-  commitTheme(
-    { [key]: (e.target as HTMLInputElement).value } as Partial<Theme>,
-    "Đổi design token",
-  );
+  const value = (e.target as HTMLInputElement).value.trim();
+  if (!value) return;
+  commitTheme({ [key]: value } as Partial<Theme>, "Đổi design token");
 }
 
 function onRadius(e: Event) {

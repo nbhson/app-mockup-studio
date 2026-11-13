@@ -108,9 +108,9 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, asset validation/raw bytes, copy assets khi duplicate,
   hidden/locked layer flags, AI generate/edit, metrics.
-- `pnpm test` — 56 unit test (API 27, renderer 17, web 12) cho store selection,
+- `pnpm test` — 57 unit test (API 27, renderer 18, web 12) cho store selection,
   patch/clone, group move, layer lock, diff version, metrics, rate limit,
-  validation và performance guard.
+  validation, code export và performance guard.
 - Performance guard: test `601 nodes` trong `packages/ui-renderer` (resolve +
   export HTML) và đã đo UI thật: render 601 node ~0.9 s, selection ~16 ms.
 

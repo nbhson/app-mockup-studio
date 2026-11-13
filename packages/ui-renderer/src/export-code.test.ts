@@ -53,6 +53,13 @@ function makeDoc(overrides: Partial<UiDocument> = {}): UiDocument {
 }
 
 describe("code export", () => {
+  it("omits hidden layers from generated code", () => {
+    const doc = makeDoc();
+    doc.root.children![1]!.hidden = true;
+    const html = exportDocumentToHtml(doc);
+    expect(html).not.toContain("Save changes");
+  });
+
   it("exports valid standalone HTML with inline styles", () => {
     const html = exportDocumentToHtml(makeDoc());
     expect(html.startsWith("<!doctype html>")).toBe(true);
