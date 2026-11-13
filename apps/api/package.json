@@ -1,0 +1,48 @@
+{
+  "name": "@ai-mockup-studio/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "start:prod": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf dist .turbo",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/db/seed.ts",
+    "eval:ai": "node scripts/eval-ai.mjs",
+    "e2e:api": "node scripts/e2e-smoke.mjs"
+  },
+  "dependencies": {
+    "@ai-mockup-studio/ai-core": "workspace:*",
+    "@ai-mockup-studio/ai-prompts": "workspace:*",
+    "@ai-mockup-studio/design-system": "workspace:*",
+    "@ai-mockup-studio/shared-types": "workspace:*",
+    "@ai-mockup-studio/ui-renderer": "workspace:*",
+    "@ai-mockup-studio/ui-schema": "workspace:*",
+    "@ai-mockup-studio/validators": "workspace:*",
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/config": "^12.1.1",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1",
+    "dotenv": "^17.2.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^12.0.12",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

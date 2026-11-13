@@ -1,0 +1,31 @@
+{
+  "name": "@ai-mockup-studio/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@ai-mockup-studio/design-system": "workspace:*",
+    "@ai-mockup-studio/shared-types": "workspace:*",
+    "@ai-mockup-studio/ui-renderer": "workspace:*",
+    "@ai-mockup-studio/ui-schema": "workspace:*",
+    "@ai-mockup-studio/validators": "workspace:*",
+    "html-to-image": "^1.11.13",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.45",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.7",
+    "vue-tsc": "^3.3.14"
+  }
+}

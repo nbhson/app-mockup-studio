@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  api-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_mockup_studio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_mockup_studio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_mockup_studio
+      PORT: 3000
+      AI_RATE_LIMIT: 100
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Migrate and seed database
+        run: |
+          pnpm db:migrate
+          pnpm db:seed
+
+      - name: Start API
+        run: |
+          pnpm --filter @ai-mockup-studio/api start:prod > /tmp/api.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://localhost:3000/api/health > /tmp/health.json; then break; fi
+            sleep 1
+          done
+          cat /tmp/health.json
+          node -e "const h=require('/tmp/health.json'); if (h.status!=='ok'||h.checks?.database!=='up') process.exit(1)"
+
+      - name: API E2E smoke
+        run: pnpm --filter @ai-mockup-studio/api e2e:api
+
+      - name: AI evaluation (mock provider)
+        run: pnpm --filter @ai-mockup-studio/api eval:ai
+
+      - name: Metrics smoke test
+        run: |
+          curl -fsS http://localhost:3000/api/metrics > /tmp/metrics.json
+          node -e "const m=require('/tmp/metrics.json'); if (!m.requests.total || m.requests.total < 1) process.exit(1); console.log('requests', m.requests.total, 'p95', m.latencyMs.p95 + 'ms', 'ai', JSON.stringify(m.ai.generate.byOutcome))"
+
+      - name: API logs on failure
+        if: failure()
+        run: cat /tmp/api.log

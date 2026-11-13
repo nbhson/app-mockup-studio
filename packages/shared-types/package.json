@@ -1,0 +1,31 @@
+{
+  "name": "@ai-mockup-studio/shared-types",
+  "version": "0.1.0",
+  "description": "Shared TypeScript types between web and api",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@ai-mockup-studio/ui-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^9.0.0",
+    "typescript": "^5.9.3"
+  }
+}

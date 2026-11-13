@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ds-primary: #2563eb;
+  --color-ds-background: #ffffff;
+  --color-ds-foreground: #0f172a;
+  --color-ds-muted: #f1f5f9;
+  --color-ds-muted-foreground: #64748b;
+  --color-ds-border: #e2e8f0;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Thin scrollbars for editor panels */
+.panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.panel-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}

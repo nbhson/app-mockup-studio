@@ -1,0 +1,18 @@
+import { createRouter, createWebHistory } from "vue-router";
+
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: "/", redirect: "/projects" },
+    {
+      path: "/projects",
+      name: "projects",
+      component: () => import("./modules/projects/ProjectsView.vue"),
+    },
+    {
+      path: "/workspace/:projectId",
+      name: "workspace",
+      component: () => import("./modules/workspace/WorkspaceView.vue"),
+    },
+  ],
+});

@@ -1,0 +1,17 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "infrastructure/*"
+
+allowBuilds:
+  esbuild: true
+  "@nestjs/core": true
+  "@nestjs/common": true
+  "@nestjs/platform-express": true
+  # Optional peer of drizzle-orm; the app uses Drizzle with `pg`, not Prisma.
+  prisma: false
+  "@prisma/engines": false
+minimumReleaseAgeExclude:
+  - "@nestjs/common@12.4.2"
+  - "@nestjs/core@12.4.2"
+  - "@nestjs/platform-express@12.4.2"
