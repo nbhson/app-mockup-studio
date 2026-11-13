@@ -7,8 +7,9 @@ docker compose -f infrastructure/docker/docker-compose.yml up -d
 ```
 
 Starts PostgreSQL 17 (`localhost:5432`, user/password `postgres/postgres`) and
-Redis (`localhost:6379`). The Redis instance is reserved for multi-instance
-rate limiting / queues; the MVP API currently uses an in-process limiter.
+Redis (`localhost:6379`). The Redis instance backs the shared rate limiter when
+`REDIS_URL` is set on the API (see `apps/api/.env.example`); without it the API
+uses an in-process limiter valid for a single instance.
 
 ## Production deployment (runbook)
 
@@ -123,8 +124,6 @@ different origins, add both to the comma-separated allowlist.
 
 ### Known production follow-ups
 
-- Replace the in-process `AiRateLimitGuard` with Redis when running more than
-  one API instance (the `redis` service is already in local compose).
 - Metrics are in-memory per instance; export to Prometheus/OpenTelemetry for
   aggregate dashboards and long-term retention.
 - Move asset bytes from PostgreSQL to S3/R2 when files grow beyond the MVP

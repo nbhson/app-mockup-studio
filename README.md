@@ -130,12 +130,13 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
 - [x] Export code HTML/React/Vue (style inline, nhúng ảnh dạng data URL, tải/copy)
 - [x] Drizzle migration + seed; API E2E và UI flow đã kiểm chứng
 - [x] Monitoring: `/api/health` (DB readiness), `/api/metrics` (latency, lỗi, AI token/fallback)
+- [x] Production hardening: Redis rate limit chia sẻ giữa nhiều API instance
+  (`REDIS_URL`, fallback an toàn về in-memory khi Redis mất)
 - [x] AI evaluation: test set 8 prompt + 3 edit case, metric cấu trúc/intent/fallback
 - [x] Performance: 601 node render/selection ổn định, guard test trong CI
-- [x] CI workflow (build + typecheck + test + API smoke 31 check + AI eval với Postgres) — chưa chạy do chưa init Git
+- [x] CI workflow (build + typecheck + test + API smoke 31 check + AI eval với Postgres)
 - [x] Runbook deploy production (env, migrate, systemd, Nginx, health, rollback)
-- [ ] Production hardening: Redis rate limit cho multi-instance, deploy/rollback thực tế
-- [ ] Khởi tạo Git repository (hiện thư mục chưa có `.git`)
+- [ ] Deploy/rollback thực tế lên môi trường production (cần hạ tầng/host thật)
 
 ---
 

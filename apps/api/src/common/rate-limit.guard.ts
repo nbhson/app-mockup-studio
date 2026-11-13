@@ -3,62 +3,55 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
+  Optional,
 } from "@nestjs/common";
 import type { Request } from "express";
-
-interface Bucket {
-  count: number;
-  resetAt: number;
-}
+import {
+  InMemoryRateLimitStore,
+  type RateLimitStore,
+} from "./rate-limit.store";
+import { REDIS_RATE_LIMIT_STORE } from "./redis-rate-limit.store";
 
 /**
- * Minimal in-memory rate limit for the AI endpoints (plan/12 GĐ 6.1).
+ * Rate limit for the AI endpoints (plan/12 GĐ 6.1).
  *
  * Generation/editing can trigger paid LLM calls, so a single client must not be
- * able to hammer them. This is intentionally dependency-free: a single API
- * instance enforces a sliding one-minute window per IP. Multi-instance
- * deployments should move this to Redis (documented as a production follow-up).
+ * able to hammer them. A sliding one-minute window is enforced per IP. The
+ * underlying store is injected: in-memory by default (single instance,
+ * dependency-free), or Redis when `REDIS_URL` is set so limits are shared
+ * across horizontally-scaled instances.
  */
 @Injectable()
 export class AiRateLimitGuard implements CanActivate {
-  private readonly buckets = new Map<string, Bucket>();
-  private readonly limit = Math.max(
-    1,
-    Number(process.env.AI_RATE_LIMIT ?? 20) || 20,
-  );
   private readonly windowMs = 60_000;
+  private readonly limit: number;
+  private readonly store: RateLimitStore;
 
-  canActivate(context: ExecutionContext): boolean {
+  constructor(
+    @Optional() @Inject(REDIS_RATE_LIMIT_STORE) store?: RateLimitStore | undefined,
+  ) {
+    this.store = store ?? new InMemoryRateLimitStore();
+    this.limit = Math.max(1, Number(process.env.AI_RATE_LIMIT ?? 20) || 20);
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const key = request.ip ?? request.socket.remoteAddress ?? "unknown";
-    const now = Date.now();
+    const result = await this.store.hit(key, this.limit, this.windowMs);
 
-    if (this.buckets.size > 10_000) this.prune(now);
-
-    const bucket = this.buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) {
-      this.buckets.set(key, { count: 1, resetAt: now + this.windowMs });
-      return true;
-    }
-    if (bucket.count >= this.limit) {
-      const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
+    if (!result.allowed) {
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
           error: "Too Many Requests",
-          message: `Quá nhiều yêu cầu AI. Vui lòng thử lại sau ${retryAfter} giây.`,
+          message: `Quá nhiều yêu cầu AI. Vui lòng thử lại sau ${result.retryAfterSeconds} giây.`,
         },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    bucket.count += 1;
     return true;
   }
-
-  private prune(now: number): void {
-    for (const [key, bucket] of this.buckets) {
-      if (bucket.resetAt <= now) this.buckets.delete(key);
-    }
-  }
 }
+
