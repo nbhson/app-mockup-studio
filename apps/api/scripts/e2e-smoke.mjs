@@ -4,8 +4,8 @@
 //
 // Exercises the full HTTP surface against a running API + seeded Postgres:
 // projects CRUD/duplicate, documents save/load, version history + reversible
-// restore, cross-project isolation, assets validation/raw bytes/delete,
-// AI generate/edit and observability counters.
+// restore, cross-project isolation, assets validation/raw bytes/delete and
+// asset copying on duplicate, AI generate/edit and observability counters.
 //
 // Usage: API_URL=http://localhost:3000/api pnpm --filter @ai-mockup-studio/api e2e:api
 // Requires the demo user from `pnpm db:seed` (CI seeds before starting the API).
@@ -236,13 +236,52 @@ async function main() {
       uiDocumentSchema.safeParse(edited.document).success,
   );
 
-  // --- Duplicate -----------------------------------------------------------
+  // --- Duplicate (document + assets) --------------------------------------
+  const dupAsset = (
+    await request("POST", `/projects/${project.id}/assets`, {
+      body: {
+        fileName: "duplicate.png",
+        mimeType: "image/png",
+        dataBase64: PNG_BASE64,
+      },
+    })
+  ).payload;
+  const docWithImage = makeDoc("E2E v2");
+  docWithImage.root.children.push({
+    id: "duplicate-image",
+    type: "basic.image",
+    props: { src: dupAsset.url, alt: "duplicate" },
+  });
+  await request("POST", `/projects/${project.id}/document`, {
+    body: { document: docWithImage },
+  });
+
   const copy = (
     await request("POST", `/projects/${project.id}/duplicate`)
   ).payload;
   check("duplicate project", copy.name.endsWith("(bản sao)"));
   const copiedDoc = (await request("GET", `/projects/${copy.id}/document`)).payload.document;
   check("duplicate copies the current document", copiedDoc?.name === "E2E v2");
+
+  const copiedImage = copiedDoc?.root.children.find(
+    (node) => node.id === "duplicate-image",
+  );
+  const copiedSrc = copiedImage?.props?.src;
+  check(
+    "duplicate rewrites image URLs to the copied asset",
+    typeof copiedSrc === "string" &&
+      copiedSrc.includes(`/projects/${copy.id}/assets/`) &&
+      copiedSrc !== dupAsset.url,
+    String(copiedSrc),
+  );
+
+  const copiedAssets = (
+    await request("GET", `/projects/${copy.id}/assets`)
+  ).payload.assets;
+  check("duplicate copies assets", copiedAssets.length === 1, `assets=${copiedAssets.length}`);
+  const copiedRaw = await fetch(`${ORIGIN}${copiedSrc}`);
+  const copiedBytes = Buffer.from(await copiedRaw.arrayBuffer());
+  check("copied asset row returns the same bytes", copiedBytes.toString("base64") === PNG_BASE64);
 
   // --- Observability -------------------------------------------------------
   const metrics = (await request("GET", "/metrics")).payload;

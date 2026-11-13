@@ -13,10 +13,12 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
 } from "@ai-mockup-studio/shared-types";
+import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { createProjectSchema, updateProjectSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
 import { DemoUserService } from "../../db/demo-user.service";
-import { projects, documents } from "../../db/schema";
+import { projects, documents, assets } from "../../db/schema";
+import { remapAssetUrls } from "./duplicate-document";
 
 function toDto(row: {
   id: string;
@@ -97,16 +99,44 @@ export class ProjectsController {
       })
       .returning();
 
+    // Assets are project-scoped, so the duplicate needs its own rows; the
+    // document's image URLs are rewritten to the copied asset ids below.
+    const sourceAssets = await this.db.client
+      .select()
+      .from(assets)
+      .where(eq(assets.projectId, id));
+    const urlMap = new Map<string, string>();
+    for (const asset of sourceAssets) {
+      const [assetCopy] = await this.db.client
+        .insert(assets)
+        .values({
+          projectId: copy.id,
+          fileName: asset.fileName,
+          mimeType: asset.mimeType,
+          size: asset.size,
+          data: asset.data,
+        })
+        .returning({ id: assets.id });
+      urlMap.set(
+        `/api/projects/${id}/assets/${asset.id}/raw`,
+        `/api/projects/${copy.id}/assets/${assetCopy.id}/raw`,
+      );
+    }
+
     const [sourceDoc] = await this.db.client
       .select()
       .from(documents)
       .where(eq(documents.projectId, id))
       .limit(1);
     if (sourceDoc) {
+      const schema = remapAssetUrls(
+        sourceDoc.schema as unknown as UiDocument,
+        urlMap,
+      );
       await this.db.client.insert(documents).values({
         projectId: copy.id,
         schemaVersion: sourceDoc.schemaVersion,
-        schema: sourceDoc.schema,
+        schema,
       });
     }
 

@@ -1,19 +1,24 @@
 <script setup lang="ts">
 // Canvas — center zone. Renders the current document via SchemaNode using the
-// resolved element tree, and draws a selection outline over the chosen node.
+// resolved element tree, and draws selection outlines over chosen nodes.
+// Supports multi-select (P2.3), copy/paste (P2.4), duplicate page (P2.11).
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toPng, toSvg } from "html-to-image";
-import { useDocumentStore } from "../../stores/document";
+import { useDocumentStore, topMostIds } from "../../stores/document";
+import { useEditorStore } from "../../stores/editor";
+import { useProjectsStore } from "../../stores/projects";
 import { resolveNode, type ResolvedElement } from "@ai-mockup-studio/ui-renderer";
-import { findNode } from "@ai-mockup-studio/ui-schema";
-import { buildNodeFromType, useEditorStore } from "../../stores/editor";
+import { findNode, findParent } from "@ai-mockup-studio/ui-schema";
+import { buildNodeFromType } from "../../stores/editor";
+import { cloneWithNewIds } from "./clone-nodes";
 import SchemaNode from "./SchemaNode.vue";
 import AssetsDialog from "../assets/AssetsDialog.vue";
 import ExportCodeDialog from "../export/ExportCodeDialog.vue";
 
 const doc = useDocumentStore();
 const editor = useEditorStore();
+const projects = useProjectsStore();
 const router = useRouter();
 const pageEl = ref<HTMLElement | null>(null);
 const layoutTick = ref(0);
@@ -38,6 +43,18 @@ interface ResizeState {
 
 const resizeState = ref<ResizeState | null>(null);
 const resizePreview = ref<ResizePreview | null>(null);
+
+// --- Marquee selection (P2.3) ----------------------------------------------
+interface MarqueeRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+const marqueeRect = ref<MarqueeRect | null>(null);
+let marqueeStart: { x: number; y: number } | null = null;
+let suppressCanvasClick = false;
 
 const MIN_WIDTH = 24;
 const MIN_HEIGHT = 16;
@@ -75,6 +92,8 @@ type ExportFormat = "png" | "svg" | "json";
 
 const exporting = ref<ExportFormat | null>(null);
 const exportError = ref<string | null>(null);
+const duplicating = ref(false);
+const duplicateError = ref<string | null>(null);
 const imageFormats: ("png" | "svg")[] = ["png", "svg"];
 
 function slugify(value: string): string {
@@ -193,11 +212,9 @@ const canResize = computed(
     !doc.isLoading,
 );
 
-const selectionRect = computed(() => {
-  // Re-read the DOM after every document/selection change and on resize.
-  void layoutTick.value;
-  if (!doc.selectedId || !doc.document || !pageEl.value) return null;
-  const el = document.querySelector(`[data-node-id="${CSS.escape(doc.selectedId)}"]`);
+function nodeRect(id: string): { left: number; top: number; width: number; height: number } | null {
+  if (!pageEl.value) return null;
+  const el = document.querySelector(`[data-node-id="${CSS.escape(id)}"]`);
   if (!el) return null;
   // The outline lives inside the page element, so its coordinates must be
   // relative to the page — not to the outer scroll container.
@@ -209,9 +226,26 @@ const selectionRect = computed(() => {
     width: er.width,
     height: er.height,
   };
+}
+
+const selectionRect = computed(() => {
+  // Re-read the DOM after every document/selection change and on resize.
+  void layoutTick.value;
+  if (!doc.selectedId || !doc.document) return null;
+  return nodeRect(doc.selectedId);
 });
 
-watch([() => doc.document, () => doc.selectedId], async () => {
+/** Thin outlines for the remaining (non-primary) selected nodes (P2.3). */
+const secondarySelectionRects = computed(() => {
+  void layoutTick.value;
+  if (!doc.document) return [];
+  return doc.selectedIds
+    .filter((id) => id !== doc.selectedId)
+    .map((id) => nodeRect(id))
+    .filter((r): r is { left: number; top: number; width: number; height: number } => r !== null);
+});
+
+watch([() => doc.document, () => doc.selectedId, () => doc.selectedIds], async () => {
   await nextTick();
   layoutTick.value += 1;
 });
@@ -309,16 +343,157 @@ function cancelResize() {
   resizePreview.value = null;
 }
 
-function onSelect(id: string) {
-  doc.selectedId = doc.selectedId === id ? null : id;
+function onSelect(payload: { id: string; additive: boolean }) {
+  // The pointerup that ends a marquee selection is followed by a click on the
+  // node under the cursor; ignore it so it does not replace the marquee set.
+  if (suppressCanvasClick) {
+    suppressCanvasClick = false;
+    return;
+  }
+  doc.selectNode(payload.id, { additive: payload.additive });
+}
+
+function pointInPage(e: PointerEvent): { x: number; y: number } | null {
+  const page = pageEl.value;
+  if (!page) return null;
+  const rect = page.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizedRect(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): MarqueeRect {
+  return {
+    left: Math.min(start.x, end.x),
+    top: Math.min(start.y, end.y),
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+  };
+}
+
+function intersects(a: MarqueeRect, b: MarqueeRect): boolean {
+  return (
+    a.left < b.left + b.width &&
+    a.left + a.width > b.left &&
+    a.top < b.top + b.height &&
+    a.top + a.height > b.top
+  );
+}
+
+function cleanupMarquee() {
+  marqueeStart = null;
+  marqueeRect.value = null;
+  window.removeEventListener("pointermove", onMarqueeMove);
+  window.removeEventListener("pointerup", onMarqueeEnd);
+  document.body.style.userSelect = "";
+}
+
+function cancelMarquee() {
+  cleanupMarquee();
+}
+
+function onCanvasPointerDown(e: PointerEvent) {
+  if (e.button !== 0 || !doc.document) return;
+  const page = pageEl.value;
+  const target = e.target as HTMLElement;
+  if (!page || !page.contains(target)) return;
+  // Resize handles own the pointer; form controls keep native behaviour.
+  if (target.closest("[data-resize]")) return;
+  if (target.closest("input, textarea, select, [contenteditable='true']")) return;
+  const start = pointInPage(e);
+  if (!start) return;
+
+  // A plain click on the background stays a click (handled by onClick);
+  // dragging turns it into a marquee selection.
+  marqueeStart = start;
+  marqueeRect.value = { left: start.x, top: start.y, width: 0, height: 0 };
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", onMarqueeMove);
+  window.addEventListener("pointerup", onMarqueeEnd);
+}
+
+function onMarqueeMove(e: PointerEvent) {
+  if (!marqueeStart || !pageEl.value) return;
+  const point = pointInPage(e);
+  if (!point) return;
+  const end = {
+    x: clamp(point.x, 0, pageEl.value.clientWidth),
+    y: clamp(point.y, 0, pageEl.value.clientHeight),
+  };
+  marqueeRect.value = normalizedRect(marqueeStart, end);
+}
+
+function selectNodesInMarquee(rect: MarqueeRect) {
+  const page = pageEl.value;
+  const root = doc.document?.root;
+  if (!page || !root) return;
+
+  const pageRect = page.getBoundingClientRect();
+  const candidates: string[] = [];
+  for (const el of page.querySelectorAll<HTMLElement>("[data-node-id]")) {
+    const id = el.dataset.nodeId;
+    if (!id || id === root.id) continue;
+    const nodeRect = el.getBoundingClientRect();
+    const relative: MarqueeRect = {
+      left: nodeRect.left - pageRect.left,
+      top: nodeRect.top - pageRect.top,
+      width: nodeRect.width,
+      height: nodeRect.height,
+    };
+    if (intersects(rect, relative)) candidates.push(id);
+  }
+
+  const selected = topMostIds(root, candidates);
+  if (selected.length === 0) doc.clearSelection();
+  else doc.setSelection(selected);
+}
+
+function onMarqueeEnd() {
+  const rect = marqueeRect.value;
+  const wasDrag = Boolean(rect && (rect.width >= 4 || rect.height >= 4));
+  cleanupMarquee();
+  if (!wasDrag || !rect) return;
+
+  // The browser fires click right after pointerup; do not let that click
+  // immediately clear the selection we just made.
+  suppressCanvasClick = true;
+  window.setTimeout(() => {
+    suppressCanvasClick = false;
+  }, 0);
+  selectNodesInMarquee(rect);
+}
+
+/** Ctrl/Cmd+A: select the children of the current container (or siblings of
+ *  the current leaf), not the root, so Delete cannot remove the page itself. */
+function selectAllSiblings() {
+  const root = doc.document?.root;
+  if (!root) return;
+  let container = doc.selectedNode;
+  while (container && container.children === undefined) {
+    container = findParent(root, container.id)?.parent ?? null;
+  }
+  const target = container ?? root;
+  const ids = (target.children ?? [])
+    .map((child) => child.id)
+    .filter((id) => id !== root.id);
+  doc.setSelection(ids);
 }
 
 function onCanvasClick(e: MouseEvent) {
+  if (suppressCanvasClick) {
+    suppressCanvasClick = false;
+    return;
+  }
   const target = e.target as HTMLElement;
   // The click that follows a resize-handle drag must not clear the selection.
   if (target.closest("[data-resize]")) return;
   if (target.closest("[data-canvas]") && !target.closest("[data-node-id]")) {
-    doc.selectedId = null;
+    doc.clearSelection();
   }
 }
 
@@ -345,11 +520,15 @@ function onKeydown(e: KeyboardEvent) {
   if (isTypingTarget(e.target)) return;
 
   if (e.key === "Escape") {
+    if (marqueeStart) {
+      cancelMarquee();
+      return;
+    }
     if (resizeState.value) {
       cancelResize();
       return;
     }
-    doc.selectedId = null;
+    doc.clearSelection();
   }
   // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y
   if (mod && key === "z") {
@@ -359,12 +538,19 @@ function onKeydown(e: KeyboardEvent) {
   } else if (mod && key === "y") {
     e.preventDefault();
     doc.redo();
-  } else if (e.key === "Delete" && doc.selectedId) {
-    const id = doc.selectedId;
-    if (id === doc.document?.root.id) return;
+  } else if (mod && key === "a") {
     e.preventDefault();
-    doc.applyPatches([{ op: "remove", targetId: id }], "Xóa component");
-    doc.selectedId = null;
+    selectAllSiblings();
+  } else if ((e.key === "Delete" || e.key === "Backspace") && doc.selectedIds.length > 0) {
+    if (doc.selectedIds.includes(doc.document?.root.id ?? "")) return;
+    e.preventDefault();
+    doc.removeNodes([...doc.selectedIds]);
+  } else if (mod && key === "c" && doc.selectedIds.length > 0) {
+    e.preventDefault();
+    editor.setClipboard(doc.selectedNodes);
+  } else if (mod && key === "v" && editor.clipboard.length > 0) {
+    e.preventDefault();
+    pasteClipboard();
   }
 }
 
@@ -383,7 +569,7 @@ function onDropOn(targetId: string) {
       [{ op: "add", parentId: targetId, node }],
       `Thêm ${node.name ?? payload.type}`,
     );
-    doc.selectedId = node.id;
+    doc.setSelection([node.id], node.id);
   } else {
     const { nodeId } = payload;
     const moving = findNode(doc.document.root, nodeId);
@@ -396,9 +582,61 @@ function onDropOn(targetId: string) {
       [{ op: "move", targetId: nodeId, newParentId: targetId }],
       "Di chuyển component",
     );
-    doc.selectedId = nodeId;
+    doc.setSelection([nodeId], nodeId);
   }
   editor.clearDrag();
+}
+
+/** Resolve where a pasted/duplicated node should be inserted: the primary
+ *  selected container, or its parent when the selection is a leaf, else root. */
+function insertionParent(): string {
+  const root = doc.document?.root;
+  if (!root) return "";
+  let parentId = root.id;
+  const primary = doc.selectedNode;
+  if (primary && primary.id !== root.id) {
+    const container = primary.children !== undefined
+      ? primary
+      : findParent(root, primary.id)?.parent;
+    if (container && container.id !== root.id) parentId = container.id;
+  }
+  return parentId;
+}
+
+/** Paste (Ctrl+V): clone the clipboard into the current insertion point. */
+function pasteClipboard() {
+  if (!doc.document || editor.clipboard.length === 0) return;
+  const parentId = insertionParent();
+  const clones = cloneWithNewIds(editor.clipboard);
+  doc.applyPatches(
+    clones.map((node) => ({ op: "add" as const, parentId, node })),
+    `Dán ${clones.length} component`,
+  );
+  doc.setSelection(clones.map((n) => n.id), clones[clones.length - 1]?.id ?? null);
+}
+
+/** Duplicate the current page (P2.11). The MVP stores one page per project,
+ *  so this creates an independent project and opens it. Unsaved edits are
+ *  flushed first; assets are copied server-side with rewritten URLs. */
+async function duplicateProject() {
+  if (!doc.projectId || duplicating.value) return;
+  duplicating.value = true;
+  duplicateError.value = null;
+  try {
+    if (doc.isDirty) {
+      await doc.save();
+      if (doc.isDirty || doc.saveError) {
+        throw new Error(doc.saveError ?? "Không lưu được thay đổi trước khi nhân bản");
+      }
+    }
+    const copy = await projects.duplicate(doc.projectId);
+    await router.push(`/workspace/${copy.id}`);
+  } catch (e) {
+    duplicateError.value =
+      e instanceof Error ? e.message : "Không nhân bản được dự án";
+  } finally {
+    duplicating.value = false;
+  }
 }
 
 onMounted(() => {
@@ -409,6 +647,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("resize", onResize);
   cleanupResizeListeners();
+  cleanupMarquee();
 });
 </script>
 
@@ -455,12 +694,24 @@ onBeforeUnmount(() => {
 
       <div class="flex items-center gap-1">
         <span
-          v-if="exportError"
+          v-if="exportError || duplicateError"
           class="max-w-40 truncate text-[10px] text-red-500"
-          :title="exportError"
+          :title="exportError ?? duplicateError ?? ''"
         >
-          {{ exportError }}
+          {{ exportError ?? duplicateError }}
         </span>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document || duplicating || doc.isSaving"
+          :title="
+            doc.isDirty
+              ? 'Lưu thay đổi rồi nhân bản trang thành dự án mới'
+              : 'Nhân bản trang thành dự án mới (giữ schema và ảnh)'
+          "
+          @click="duplicateProject"
+        >
+          {{ duplicating ? "…" : "⧉ Nhân bản trang" }}
+        </button>
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
@@ -501,6 +752,7 @@ onBeforeUnmount(() => {
     <div
       data-canvas
       class="relative min-h-0 flex-1 overflow-auto bg-slate-200/60"
+      @pointerdown="onCanvasPointerDown"
       @click="onCanvasClick"
     >
       <div v-if="!doc.isLoading && doc.document" class="mx-auto my-8 w-fit">
@@ -520,6 +772,31 @@ onBeforeUnmount(() => {
             :selectable="true"
             @select="onSelect"
             @drop-on="onDropOn"
+          />
+
+          <div
+            v-for="rect in secondarySelectionRects"
+            :key="`${rect.left}x${rect.top}`"
+            data-export-ignore
+            class="pointer-events-none absolute z-10 border border-dashed border-blue-400"
+            :style="{
+              left: `${rect.left}px`,
+              top: `${rect.top}px`,
+              width: `${rect.width}px`,
+              height: `${rect.height}px`,
+            }"
+          />
+
+          <div
+            v-if="marqueeRect"
+            data-export-ignore
+            class="pointer-events-none absolute z-20 border border-blue-500 bg-blue-500/10"
+            :style="{
+              left: `${marqueeRect.left}px`,
+              top: `${marqueeRect.top}px`,
+              width: `${marqueeRect.width}px`,
+              height: `${marqueeRect.height}px`,
+            }"
           />
 
           <div

@@ -77,6 +77,17 @@ export type DragPayload =
 export const useEditorStore = defineStore("editor", () => {
   const dragPayload = ref<DragPayload | null>(null);
 
+  /** Clipboard (P2.4 copy/paste): deep-cloned subtrees awaiting a paste. */
+  const clipboard = ref<UiNode[]>([]);
+
+  function setClipboard(nodes: UiNode[]) {
+    clipboard.value = nodes.map((n) => JSON.parse(JSON.stringify(n)) as UiNode);
+  }
+
+  function clearClipboard() {
+    clipboard.value = [];
+  }
+
   function startDragNew(type: string) {
     dragPayload.value = { kind: "new", type };
   }
@@ -89,5 +100,13 @@ export const useEditorStore = defineStore("editor", () => {
     dragPayload.value = null;
   }
 
-  return { dragPayload, startDragNew, startDragMove, clearDrag };
+  return {
+    dragPayload,
+    clipboard,
+    setClipboard,
+    clearClipboard,
+    startDragNew,
+    startDragMove,
+    clearDrag,
+  };
 });

@@ -95,7 +95,7 @@ function useAsset(asset: AssetDto) {
         [{ op: "add", parentId, node }],
         `Thêm ảnh ${asset.fileName}`,
       );
-      doc.selectedId = node.id;
+      doc.setSelection([node.id], node.id);
     }
     close();
   } catch (e) {

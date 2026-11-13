@@ -7,7 +7,7 @@ import type { ResolvedElement } from "@ai-mockup-studio/ui-renderer";
 
 const props = defineProps<{ element: ResolvedElement; selectable?: boolean }>();
 const emit = defineEmits<{
-  (e: "select", id: string): void;
+  (e: "select", payload: { id: string; additive: boolean }): void;
   (e: "drop-on", id: string): void;
 }>();
 
@@ -90,8 +90,11 @@ const style = computed(() => styleFor(props.element));
 const isContainer = computed(() => props.element.isContainer);
 const hasUnknown = computed(() => !props.element.known);
 
-function onClick() {
-  emit("select", props.element.id);
+function onClick(e: MouseEvent) {
+  emit("select", {
+    id: props.element.id,
+    additive: e.ctrlKey || e.metaKey,
+  });
 }
 </script>
 
