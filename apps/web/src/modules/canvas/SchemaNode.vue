@@ -13,7 +13,11 @@ const emit = defineEmits<{
 
 const isDragOver = ref(false);
 const canDrop = computed(
-  () => Boolean(props.selectable) && props.element.isContainer,
+  () =>
+    Boolean(props.selectable) &&
+    props.element.isContainer &&
+    !props.element.hidden &&
+    !props.element.locked,
 );
 
 function hasMockupDrag(e: DragEvent): boolean {
@@ -91,6 +95,9 @@ const isContainer = computed(() => props.element.isContainer);
 const hasUnknown = computed(() => !props.element.known);
 
 function onClick(e: MouseEvent) {
+  // Locked layers can still be selected in the Layers panel (to unlock them),
+  // but clicks on the canvas must not select or move them.
+  if (props.element.locked) return;
   emit("select", {
     id: props.element.id,
     additive: e.ctrlKey || e.metaKey,
@@ -100,8 +107,10 @@ function onClick(e: MouseEvent) {
 
 <template>
   <div
+    v-if="!element.hidden"
     :data-node-id="element.id"
     :data-type="element.type"
+    :data-locked="element.locked ? 'true' : undefined"
     class="relative"
     :class="isDragOver ? 'ring-2 ring-inset ring-blue-400' : ''"
     :style="style"

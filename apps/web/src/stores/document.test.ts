@@ -35,6 +35,7 @@ function makeDocument(): UiDocument {
           ],
         },
         { id: "button", type: "basic.button", props: { label: "Save" } },
+        { id: "panel", type: "layout.section", children: [] },
       ],
     },
   };
@@ -102,9 +103,61 @@ describe("document store selection", () => {
 
     expect(store.document?.root.children?.map((node) => node.id)).toEqual([
       "button",
+      "panel",
     ]);
     expect(store.selectedIds).toEqual([]);
     expect(store.selectedId).toBeNull();
+  });
+
+  it("skips locked layers when deleting", () => {
+    const store = useDocumentStore();
+    const document = makeDocument();
+    document.root.children![1]!.locked = true;
+    store.setDocument(document);
+    store.setSelection(["section", "button"], "section");
+
+    store.removeNodes(["section", "button"]);
+
+    expect(store.document?.root.children?.map((node) => node.id)).toEqual([
+      "button",
+      "panel",
+    ]);
+    expect(store.selectedIds).toEqual(["button"]);
+  });
+
+  it("moves several selected nodes into a container in one command", () => {
+    const store = useDocumentStore();
+    store.setDocument(makeDocument());
+    store.setSelection(["card", "button"], "card");
+
+    store.moveNodes(["card", "button"], "panel");
+
+    const panel = store.document?.root.children?.find(
+      (node) => node.id === "panel",
+    );
+    expect(panel?.children?.map((node) => node.id)).toEqual(["card", "button"]);
+    expect(store.selectedIds).toEqual(["card", "button"]);
+  });
+
+  it("refuses to move locked nodes or create a cycle", () => {
+    const store = useDocumentStore();
+    const document = makeDocument();
+    document.root.children![1]!.locked = true;
+    store.setDocument(document);
+
+    // Moving a container into its own descendant is a no-op.
+    const beforeCycle = store.document;
+    store.moveNodes(["section"], "card");
+    expect(store.document).toBe(beforeCycle);
+
+    store.moveNodes(["card", "button"], "panel");
+    const panel = store.document?.root.children?.find(
+      (node) => node.id === "panel",
+    );
+    expect(panel?.children?.map((node) => node.id)).toEqual(["card"]);
+    expect(
+      store.document?.root.children?.some((node) => node.id === "button"),
+    ).toBe(true);
   });
 
   it("drops selection ids removed by undo/redo or AI patches", () => {

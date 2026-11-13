@@ -25,6 +25,9 @@ export interface ResolvedElement {
   known: boolean;
   label: string;
   isContainer: boolean;
+  /** Hidden/locked flags are editor state carried through resolution. */
+  hidden?: boolean;
+  locked?: boolean;
   /** Merged props: definition defaults overridden by node.props. */
   props: Record<string, unknown>;
   /** Merged styles: definition defaultStyles + node.styles + theme-derived. */
@@ -45,7 +48,17 @@ export function resolveNode(
     styles.color = styles.color ?? theme.primaryForeground;
   }
   if (node.type === "layout.sidebar") {
-    styles.backgroundColor = styles.backgroundColor ?? defaultTokens.colors.muted;
+    styles.backgroundColor = styles.backgroundColor ?? theme.muted;
+  }
+  // Design-token radius (P2.7): components using their registry default radius
+  // follow the document token; an explicitly overridden radius still wins.
+  const defaultRadius = def?.defaultStyles?.borderRadius;
+  const explicitRadius = node.styles?.borderRadius;
+  if (
+    typeof styles.borderRadius === "number" &&
+    (explicitRadius === undefined || explicitRadius === defaultRadius)
+  ) {
+    styles.borderRadius = theme.radius;
   }
 
   return {
@@ -54,6 +67,8 @@ export function resolveNode(
     known: isKnownComponentType(node.type),
     label: def?.label ?? node.type,
     isContainer: def?.isContainer ?? false,
+    hidden: node.hidden,
+    locked: node.locked,
     props: { ...(def?.defaultProps ?? {}), ...(node.props ?? {}) },
     styles,
     children: node.children?.map((c) => resolveNode(c, theme, tokens)),

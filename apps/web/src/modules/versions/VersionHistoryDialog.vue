@@ -1,9 +1,16 @@
 <script setup lang="ts">
-// Version history dialog (plan/12 GĐ 5.2) — lists server snapshots and lets the
-// user restore one. Restoring snapshots the current state first, so the action
-// is itself reversible from this timeline.
+// Version history dialog (plan/12 GĐ 5.2) — lists server snapshots, lets the
+// user restore one, and compares a snapshot with the document open in the
+// editor (P2.10 diff cơ bản). Restoring snapshots the current state first, so
+// the action is itself reversible from this timeline.
 import { onBeforeUnmount, ref, watch } from "vue";
+import type {
+  VersionDetailResponse,
+  VersionSummaryDto,
+} from "@ai-mockup-studio/shared-types";
 import { useDocumentStore } from "../../stores/document";
+import { api } from "../../services/api";
+import { diffDocuments, type DocumentDiff } from "./diff-document";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: "close"): void }>();
@@ -11,6 +18,11 @@ const emit = defineEmits<{ (e: "close"): void }>();
 const doc = useDocumentStore();
 const confirmId = ref<string | null>(null);
 const actionError = ref<string | null>(null);
+
+const compareId = ref<string | null>(null);
+const comparing = ref(false);
+const diff = ref<DocumentDiff | null>(null);
+const diffError = ref<string | null>(null);
 
 const formatter = new Intl.DateTimeFormat("vi-VN", {
   dateStyle: "short",
@@ -21,8 +33,16 @@ function formatDate(iso: string): string {
   return formatter.format(new Date(iso));
 }
 
+function resetCompare() {
+  compareId.value = null;
+  comparing.value = false;
+  diff.value = null;
+  diffError.value = null;
+}
+
 function close() {
   confirmId.value = null;
+  resetCompare();
   emit("close");
 }
 
@@ -36,6 +56,7 @@ watch(
     if (open) {
       confirmId.value = null;
       actionError.value = null;
+      resetCompare();
       window.addEventListener("keydown", onKeydown);
       void doc.loadVersions();
     } else {
@@ -54,6 +75,34 @@ async function restore(id: string) {
   } catch (e) {
     actionError.value =
       e instanceof Error ? e.message : "Khôi phục thất bại";
+  }
+}
+
+/** Compare a snapshot against what is currently open (snapshot → current). */
+async function compare(version: VersionSummaryDto) {
+  if (compareId.value === version.id) {
+    resetCompare();
+    return;
+  }
+  if (!doc.projectId || !doc.document) return;
+  compareId.value = version.id;
+  comparing.value = true;
+  diff.value = null;
+  diffError.value = null;
+  try {
+    const detail = await api.get<VersionDetailResponse>(
+      `/projects/${doc.projectId}/versions/${version.id}`,
+    );
+    // Ignore a response that arrived after the user switched/closed the diff.
+    if (compareId.value !== version.id) return;
+    diff.value = diffDocuments(detail.document, doc.document);
+  } catch (e) {
+    if (compareId.value === version.id) {
+      diffError.value =
+        e instanceof Error ? e.message : "Không tải được bản so sánh";
+    }
+  } finally {
+    if (compareId.value === version.id) comparing.value = false;
   }
 }
 </script>
@@ -122,6 +171,18 @@ async function restore(id: string) {
                 </div>
 
                 <div class="flex shrink-0 items-center gap-1">
+                  <button
+                    class="rounded border border-ds-border px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+                    :title="
+                      compareId === version.id
+                        ? 'Ẩn so sánh'
+                        : 'So sánh bản này với nội dung đang mở'
+                    "
+                    :aria-expanded="compareId === version.id"
+                    @click="compare(version)"
+                  >
+                    {{ compareId === version.id ? "Ẩn" : "So sánh" }}
+                  </button>
                   <template v-if="confirmId === version.id">
                     <button
                       class="rounded bg-red-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
@@ -147,6 +208,66 @@ async function restore(id: string) {
                     Khôi phục
                   </button>
                 </div>
+              </div>
+
+              <div
+                v-if="compareId === version.id"
+                class="mt-2 rounded bg-slate-50 p-2 text-[11px]"
+              >
+                <p v-if="comparing" class="text-slate-500">Đang tải bản so sánh…</p>
+                <p v-else-if="diffError" class="text-red-500">{{ diffError }}</p>
+                <template v-else-if="diff">
+                  <p v-if="!diff.hasChanges" class="text-slate-500">
+                    Không có khác biệt so với bản đang mở.
+                  </p>
+                  <template v-else>
+                    <div class="mb-1 flex flex-wrap gap-1">
+                      <span
+                        v-if="diff.added.length"
+                        class="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700"
+                      >
+                        +{{ diff.added.length }} node
+                      </span>
+                      <span
+                        v-if="diff.removed.length"
+                        class="rounded bg-red-50 px-1.5 py-0.5 text-red-600"
+                      >
+                        −{{ diff.removed.length }} node
+                      </span>
+                      <span
+                        v-if="diff.changed.length"
+                        class="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700"
+                      >
+                        ~{{ diff.changed.length }} sửa
+                      </span>
+                      <span
+                        v-if="diff.themeChanged"
+                        class="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700"
+                      >
+                        theme
+                      </span>
+                    </div>
+                    <ul class="space-y-0.5 text-slate-500">
+                      <li v-for="item in diff.changed.slice(0, 4)" :key="`c-${item.id}`">
+                        ~ {{ item.name }} ({{ item.fields.join(", ") }})
+                      </li>
+                      <li v-for="item in diff.added.slice(0, 3)" :key="`a-${item.id}`">
+                        + {{ item.name }}
+                      </li>
+                      <li v-for="item in diff.removed.slice(0, 3)" :key="`r-${item.id}`">
+                        − {{ item.name }}
+                      </li>
+                    </ul>
+                    <p
+                      v-if="
+                        diff.changed.length + diff.added.length + diff.removed.length > 10
+                      "
+                      class="mt-1 text-slate-400"
+                    >
+                      … và các thay đổi khác
+                    </p>
+                  </template>
+                </template>
               </div>
             </li>
           </ul>

@@ -5,7 +5,8 @@
 // Exercises the full HTTP surface against a running API + seeded Postgres:
 // projects CRUD/duplicate, documents save/load, version history + reversible
 // restore, cross-project isolation, assets validation/raw bytes/delete and
-// asset copying on duplicate, AI generate/edit and observability counters.
+// asset copying on duplicate, hidden/locked flags, AI generate/edit and
+// observability counters.
 //
 // Usage: API_URL=http://localhost:3000/api pnpm --filter @ai-mockup-studio/api e2e:api
 // Requires the demo user from `pnpm db:seed` (CI seeds before starting the API).
@@ -250,6 +251,8 @@ async function main() {
   docWithImage.root.children.push({
     id: "duplicate-image",
     type: "basic.image",
+    hidden: true,
+    locked: true,
     props: { src: dupAsset.url, alt: "duplicate" },
   });
   await request("POST", `/projects/${project.id}/document`, {
@@ -273,6 +276,11 @@ async function main() {
       copiedSrc.includes(`/projects/${copy.id}/assets/`) &&
       copiedSrc !== dupAsset.url,
     String(copiedSrc),
+  );
+  check(
+    "hidden/locked layer flags survive save and duplicate",
+    copiedImage?.hidden === true && copiedImage?.locked === true,
+    JSON.stringify({ hidden: copiedImage?.hidden, locked: copiedImage?.locked }),
   );
 
   const copiedAssets = (

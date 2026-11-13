@@ -67,6 +67,10 @@ export interface UiNode {
   id: string;
   type: string;
   name?: string;
+  /** Layer visibility — hidden nodes stay in the document but are not rendered. */
+  hidden?: boolean;
+  /** Locked nodes cannot be selected/resized/moved from the canvas. */
+  locked?: boolean;
   props?: Record<string, unknown>;
   styles?: UiStyles;
   children?: UiNode[];

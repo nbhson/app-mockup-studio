@@ -104,12 +104,13 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   case against API đang chạy; kiểm tra schema, id trùng, viewport, markup lạ,
   intent coverage, fallback rate và lưu report JSON nếu đặt `EVAL_OUT`.
   Với mock provider, kết quả là baseline cấu trúc; điền key để đo LLM thật.
-- `pnpm --filter @ai-mockup-studio/api e2e:api` — 34 check HTTP end-to-end:
+- `pnpm --filter @ai-mockup-studio/api e2e:api` — 35 check HTTP end-to-end:
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, asset validation/raw bytes, copy assets khi duplicate,
-  AI generate/edit, metrics.
-- `pnpm test` — 50 unit test (API 27, renderer 17, web 6) cho store selection,
-  patch/clone, metrics, rate limit, validation và performance guard.
+  hidden/locked layer flags, AI generate/edit, metrics.
+- `pnpm test` — 56 unit test (API 27, renderer 17, web 12) cho store selection,
+  patch/clone, group move, layer lock, diff version, metrics, rate limit,
+  validation và performance guard.
 - Performance guard: test `601 nodes` trong `packages/ui-renderer` (resolve +
   export HTML) và đã đo UI thật: render 601 node ~0.9 s, selection ~16 ms.
 
@@ -124,11 +125,13 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
 - [x] Renderer schema → Vue, canvas, selection, inspector, undo/redo
 - [x] Autosave (debounce + revision guard), phím tắt Ctrl+S/Z/Y, Delete
 - [x] Drag & drop từ palette/layers; resize có preview và ràng buộc min
-- [x] Multi-select (Ctrl/Cmd+click, marquee), copy/paste và xóa nhiều node
-- [x] Layer tree: đổi tên, di chuyển lên/xuống; palette có tìm kiếm và nhóm
+- [x] Multi-select (Ctrl/Cmd+click, marquee), copy/paste, di chuyển & xóa nhóm
+- [x] Layer tree: đổi tên, di chuyển lên/xuống, ẩn/hiện và khóa layer
+- [x] Component palette: tìm kiếm, nhóm theo loại, preview mini
+- [x] Design token editor: theme sáng/tối, màu, radius, font áp dụng toàn cục
 - [x] AI generate/edit + provider abstraction (mock + OpenAI-compatible)
 - [x] Responsive preview desktop/tablet/mobile (không làm bẩn document)
-- [x] Version history: snapshot tự động (throttle 5 phút), xem và khôi phục
+- [x] Version history: snapshot tự động (throttle 5 phút), xem, so sánh và khôi phục
 - [x] Quản lý dự án: tạo, đổi tên, nhân bản, xóa
 - [x] Nhân bản trang (dự án mới) giữ schema + assets, URL ảnh được viết lại
 - [x] Quản lý ảnh của dự án: upload (PNG/JPEG/WebP/GIF ≤ 2 MB), dùng/thay ảnh, xóa
@@ -140,7 +143,7 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   (`REDIS_URL`, fallback an toàn về in-memory khi Redis mất)
 - [x] AI evaluation: test set 8 prompt + 3 edit case, metric cấu trúc/intent/fallback
 - [x] Performance: 601 node render/selection ổn định, guard test trong CI
-- [x] CI workflow (build + typecheck + test + API smoke 34 check + AI eval với Postgres)
+- [x] CI workflow (build + typecheck + test + API smoke 35 check + AI eval với Postgres)
 - [x] Runbook deploy production (env, migrate, systemd, Nginx, health, rollback)
 - [ ] Deploy/rollback thực tế lên môi trường production (cần hạ tầng/host thật)
 

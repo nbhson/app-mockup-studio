@@ -9,6 +9,10 @@ export function cloneWithNewIds(nodes: UiNode[]): UiNode[] {
   const clone = (node: UiNode): UiNode => ({
     ...node,
     id: createId(node.type.replace(/^[a-z]+\./, "")),
+    // A pasted copy should be editable even if the source layer was hidden or
+    // locked, otherwise the new node appears missing or cannot be modified.
+    hidden: undefined,
+    locked: undefined,
     props: node.props ? { ...node.props } : undefined,
     styles: node.styles ? { ...node.styles } : undefined,
     children: node.children ? node.children.map(clone) : undefined,

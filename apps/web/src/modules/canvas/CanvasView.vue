@@ -87,6 +87,25 @@ const previewWidth = computed(() => {
   ) as number;
 });
 
+/** Design tokens applied to the page: Tailwind utilities read these custom
+ *  properties, so editing a token updates every component that uses it. */
+const pageThemeStyle = computed<Record<string, string>>(() => {
+  const theme = doc.document?.theme;
+  if (!theme) return {};
+  const style: Record<string, string> = {
+    backgroundColor: theme.background,
+    color: theme.foreground,
+    fontFamily: theme.fontFamily,
+    "--color-ds-primary": theme.primary,
+    "--color-ds-background": theme.background,
+    "--color-ds-foreground": theme.foreground,
+    "--color-ds-muted": theme.muted,
+    "--color-ds-muted-foreground": theme.mutedForeground,
+    "--color-ds-border": theme.border,
+  };
+  return style;
+});
+
 // --- Export (GĐ 5.5) --------------------------------------------------------
 type ExportFormat = "png" | "svg" | "json";
 
@@ -209,6 +228,8 @@ const canResize = computed(
   () =>
     Boolean(doc.selectedNode) &&
     doc.selectedId !== doc.document?.root.id &&
+    !doc.selectedNode?.locked &&
+    !doc.selectedNode?.hidden &&
     !doc.isLoading,
 );
 
@@ -438,6 +459,8 @@ function selectNodesInMarquee(rect: MarqueeRect) {
   for (const el of page.querySelectorAll<HTMLElement>("[data-node-id]")) {
     const id = el.dataset.nodeId;
     if (!id || id === root.id) continue;
+    // Locked layers are not selectable on the canvas (unlock via Layers).
+    if (findNode(root, id)?.locked) continue;
     const nodeRect = el.getBoundingClientRect();
     const relative: MarqueeRect = {
       left: nodeRect.left - pageRect.left,
@@ -479,6 +502,7 @@ function selectAllSiblings() {
   }
   const target = container ?? root;
   const ids = (target.children ?? [])
+    .filter((child) => !child.locked)
     .map((child) => child.id)
     .filter((id) => id !== root.id);
   doc.setSelection(ids);
@@ -572,17 +596,12 @@ function onDropOn(targetId: string) {
     doc.setSelection([node.id], node.id);
   } else {
     const { nodeId } = payload;
-    const moving = findNode(doc.document.root, nodeId);
-    // Reject self-drop and moving a node into its own subtree.
-    if (!moving || nodeId === targetId || findNode(moving, targetId)) {
-      editor.clearDrag();
-      return;
-    }
-    doc.applyPatches(
-      [{ op: "move", targetId: nodeId, newParentId: targetId }],
-      "Di chuyển component",
-    );
-    doc.setSelection([nodeId], nodeId);
+    // Dragging any node of a multi-selection moves the whole group (P2.3).
+    const group =
+      doc.selectedIds.includes(nodeId) && doc.selectedIds.length > 1
+        ? doc.selectedIds
+        : [nodeId];
+    doc.moveNodes(group, targetId);
   }
   editor.clearDrag();
 }
@@ -763,7 +782,7 @@ onBeforeUnmount(() => {
           :style="{
             width: `${previewWidth}px`,
             minHeight: `${doc.document.viewport.height}px`,
-            fontFamily: doc.document.theme.fontFamily,
+            ...pageThemeStyle,
           }"
         >
           <SchemaNode

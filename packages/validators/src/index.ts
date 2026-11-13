@@ -38,6 +38,8 @@ export const uiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
     id: z.string().min(1),
     type: z.string().min(1),
     name: z.string().optional(),
+    hidden: z.boolean().optional(),
+    locked: z.boolean().optional(),
     props: z.record(z.string(), z.unknown()).optional(),
     styles: uiStylesSchema.optional(),
     children: z.array(uiNodeSchema).optional(),

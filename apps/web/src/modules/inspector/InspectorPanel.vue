@@ -2,7 +2,12 @@
 // Inspector — right zone. Lets the user edit width / height / color / padding
 // and common props of the selected component. Every change goes through the
 // document store (command manager) → undoable, versionable.
-import { ref, watch } from "vue";
+//
+// The Design tokens section edits the document theme globally: Tailwind
+// utilities on the page read the CSS custom properties set by the canvas, and
+// the renderer derives button/radius colors from the same theme.
+import { computed, ref, watch } from "vue";
+import type { Theme } from "@ai-mockup-studio/ui-schema";
 import { useDocumentStore } from "../../stores/document";
 import { applyPatchBatch } from "@ai-mockup-studio/ui-renderer";
 
@@ -60,6 +65,78 @@ function onPadding(e: Event) {
 function onColor(e: Event) {
   commit({ color: (e.target as HTMLInputElement).value }, "Sửa màu chữ");
 }
+
+// --- Design tokens (P2.7) ---------------------------------------------------
+
+const theme = computed<Theme | null>(() => doc.document?.theme ?? null);
+
+const colorTokens: { key: keyof Theme; label: string }[] = [
+  { key: "primary", label: "Primary" },
+  { key: "background", label: "Background" },
+  { key: "foreground", label: "Foreground" },
+  { key: "muted", label: "Muted" },
+  { key: "mutedForeground", label: "Muted text" },
+  { key: "border", label: "Border" },
+];
+
+function commitTheme(partial: Partial<Theme>, description: string) {
+  if (!doc.document) return;
+  doc.mutate(
+    {
+      ...doc.document,
+      theme: { ...doc.document.theme, ...partial },
+    },
+    description,
+  );
+}
+
+function onThemeColor(key: keyof Theme, e: Event) {
+  commitTheme(
+    { [key]: (e.target as HTMLInputElement).value } as Partial<Theme>,
+    "Đổi design token",
+  );
+}
+
+function onRadius(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  if (!Number.isFinite(v) || v < 0) return;
+  commitTheme({ radius: v }, "Đổi bo góc");
+}
+
+function onFontFamily(e: Event) {
+  const v = (e.target as HTMLInputElement).value.trim();
+  if (!v) return;
+  commitTheme({ fontFamily: v }, "Đổi font chữ");
+}
+
+function onMode(e: Event) {
+  const mode = (e.target as HTMLSelectElement).value === "dark" ? "dark" : "light";
+  if (mode === "dark") {
+    commitTheme(
+      {
+        mode,
+        background: "#0F172A",
+        foreground: "#F8FAFC",
+        muted: "#1E293B",
+        mutedForeground: "#94A3B8",
+        border: "#334155",
+      },
+      "Đổi theme tối",
+    );
+  } else {
+    commitTheme(
+      {
+        mode,
+        background: "#FFFFFF",
+        foreground: "#0F172A",
+        muted: "#F1F5F9",
+        mutedForeground: "#64748B",
+        border: "#E2E8F0",
+      },
+      "Đổi theme sáng",
+    );
+  }
+}
 </script>
 
 <template>
@@ -68,58 +145,143 @@ function onColor(e: Event) {
       Properties
     </div>
 
-    <div v-if="!doc.selectedNode" class="p-4 text-sm text-slate-400">
-      Chọn một component trên canvas để chỉnh thuộc tính.
-    </div>
+    <div class="panel-scroll min-h-0 flex-1 overflow-auto p-3">
+      <p v-if="!doc.selectedNode" class="text-sm text-slate-400">
+        Chọn một component trên canvas để chỉnh thuộc tính.
+      </p>
 
-    <div v-else class="panel-scroll flex-1 overflow-auto p-3">
-      <div class="mb-3">
-        <div class="text-sm font-medium text-slate-800">{{ doc.selectedNode.type }}</div>
-        <div class="text-xs text-slate-400">id: {{ doc.selectedNode.id }}</div>
+      <div v-else>
+        <div class="mb-3">
+          <div class="flex items-center gap-1.5">
+            <span class="text-sm font-medium text-slate-800">{{ doc.selectedNode.type }}</span>
+            <span
+              v-if="doc.selectedNode.locked"
+              class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600"
+            >
+              đã khóa
+            </span>
+            <span
+              v-if="doc.selectedNode.hidden"
+              class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500"
+            >
+              đang ẩn
+            </span>
+          </div>
+          <div class="text-xs text-slate-400">id: {{ doc.selectedNode.id }}</div>
+        </div>
+
+        <div class="space-y-3 text-sm">
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-500">Width (px)</span>
+            <input
+              :value="width ?? ''"
+              type="number"
+              class="w-full rounded-md border border-ds-border px-2 py-1.5"
+              placeholder="auto"
+              @change="onWidth"
+            />
+          </label>
+
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-500">Height (px)</span>
+            <input
+              :value="height ?? ''"
+              type="number"
+              class="w-full rounded-md border border-ds-border px-2 py-1.5"
+              placeholder="auto"
+              @change="onHeight"
+            />
+          </label>
+
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-500">Padding (px)</span>
+            <input
+              :value="padding ?? ''"
+              type="number"
+              class="w-full rounded-md border border-ds-border px-2 py-1.5"
+              placeholder="auto"
+              @change="onPadding"
+            />
+          </label>
+
+          <div v-if="color">
+            <span class="mb-1 block text-xs text-slate-500">Color</span>
+            <input
+              :value="color"
+              type="color"
+              class="h-8 w-full rounded-md border border-ds-border"
+              @change="onColor"
+            />
+          </div>
+        </div>
       </div>
 
-      <div class="space-y-3 text-sm">
-        <label class="block">
-          <span class="mb-1 block text-xs text-slate-500">Width (px)</span>
-          <input
-            :value="width ?? ''"
-            type="number"
-            class="w-full rounded-md border border-ds-border px-2 py-1.5"
-            placeholder="auto"
-            @change="onWidth"
-          />
+      <div v-if="theme" class="mt-4 border-t border-ds-border pt-3">
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Design tokens
+          </span>
+          <span class="text-[10px] text-slate-400">áp dụng toàn cục</span>
+        </div>
+
+        <label class="mb-2 block">
+          <span class="mb-1 block text-xs text-slate-500">Theme</span>
+          <select
+            :value="theme.mode"
+            class="w-full rounded-md border border-ds-border px-2 py-1.5 text-sm"
+            @change="onMode"
+          >
+            <option value="light">Sáng</option>
+            <option value="dark">Tối</option>
+          </select>
         </label>
 
-        <label class="block">
-          <span class="mb-1 block text-xs text-slate-500">Height (px)</span>
-          <input
-            :value="height ?? ''"
-            type="number"
-            class="w-full rounded-md border border-ds-border px-2 py-1.5"
-            placeholder="auto"
-            @change="onHeight"
-          />
-        </label>
+        <div class="mb-2 grid grid-cols-2 gap-2">
+          <label
+            v-for="token in colorTokens"
+            :key="token.key"
+            class="block"
+            :title="`${token.label}: ${theme[token.key]}`"
+          >
+            <span class="mb-1 block text-[10px] text-slate-500">{{ token.label }}</span>
+            <span class="flex items-center gap-1">
+              <input
+                :value="theme[token.key]"
+                type="color"
+                class="h-6 w-6 shrink-0 cursor-pointer rounded border border-ds-border bg-white p-0"
+                @change="onThemeColor(token.key, $event)"
+              />
+              <input
+                :value="theme[token.key]"
+                type="text"
+                spellcheck="false"
+                class="min-w-0 flex-1 rounded border border-ds-border px-1 py-0.5 font-mono text-[10px]"
+                @change="onThemeColor(token.key, $event)"
+              />
+            </span>
+          </label>
+        </div>
 
-        <label class="block">
-          <span class="mb-1 block text-xs text-slate-500">Padding (px)</span>
-          <input
-            :value="padding ?? ''"
-            type="number"
-            class="w-full rounded-md border border-ds-border px-2 py-1.5"
-            placeholder="auto"
-            @change="onPadding"
-          />
-        </label>
-
-        <div v-if="color">
-          <span class="mb-1 block text-xs text-slate-500">Color</span>
-          <input
-            :value="color"
-            type="color"
-            class="h-8 w-full rounded-md border border-ds-border"
-            @change="onColor"
-          />
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-500">Radius (px)</span>
+            <input
+              :value="theme.radius"
+              type="number"
+              min="0"
+              class="w-full rounded-md border border-ds-border px-2 py-1.5 text-sm"
+              @change="onRadius"
+            />
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-500">Font</span>
+            <input
+              :value="theme.fontFamily"
+              type="text"
+              class="w-full rounded-md border border-ds-border px-2 py-1.5 text-xs"
+              @change="onFontFamily"
+            />
+          </label>
         </div>
       </div>
     </div>

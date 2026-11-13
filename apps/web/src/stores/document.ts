@@ -181,12 +181,14 @@ export const useDocumentStore = defineStore("document", () => {
   /**
    * Remove several nodes at once (multi-select delete). Only the top-most
    * selected nodes are removed so descendants (covered by their parent) are
-   * not referenced by later remove patches.
+   * not referenced by later remove patches. Locked layers are skipped.
    */
   function removeNodes(ids: string[]) {
     if (!document.value || ids.length === 0) return;
     const root = document.value.root;
-    const top = topMostIds(root, ids);
+    const top = topMostIds(root, ids).filter(
+      (id) => !findNode(root, id)?.locked,
+    );
     if (top.length === 0) return;
     applyPatches(
       top.map((targetId) => ({ op: "remove" as const, targetId })),
@@ -198,6 +200,36 @@ export const useDocumentStore = defineStore("document", () => {
         ? primarySelectedId.value
         : null;
     setSelection(remaining, primary);
+  }
+
+  /**
+   * Move any number of selected nodes into a container in one command (P2.3
+   * group move). Locked nodes and nodes that would create a cycle are skipped.
+   */
+  function moveNodes(ids: string[], newParentId: string) {
+    if (!document.value || ids.length === 0) return;
+    const root = document.value.root;
+    const target = findNode(root, newParentId);
+    if (!target) return;
+    const movable = topMostIds(root, ids).filter((id) => {
+      if (id === root.id || id === newParentId) return false;
+      const node = findNode(root, id);
+      if (!node || node.locked) return false;
+      // Never move a node into its own subtree.
+      return !findNode(node, newParentId);
+    });
+    if (movable.length === 0) return;
+    applyPatches(
+      movable.map((targetId) => ({
+        op: "move" as const,
+        targetId,
+        newParentId,
+      })),
+      movable.length > 1
+        ? `Di chuyển ${movable.length} component`
+        : "Di chuyển component",
+    );
+    setSelection(movable, movable[movable.length - 1] ?? null);
   }
 
   function setProject(id: string) {
@@ -394,6 +426,7 @@ export const useDocumentStore = defineStore("document", () => {
     clearSelection,
     isSelected,
     removeNodes,
+    moveNodes,
     setProject,
     load,
     setDocument,

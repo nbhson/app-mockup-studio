@@ -8,6 +8,8 @@ describe("cloneWithNewIds", () => {
       id: "section-1",
       type: "layout.section",
       name: "Section",
+      hidden: true,
+      locked: true,
       styles: { padding: 12, backgroundColor: "#fff" },
       children: [
         {
@@ -26,6 +28,8 @@ describe("cloneWithNewIds", () => {
     expect(copy.children?.[0]?.id).not.toBe("text-1");
     expect(copy.children?.[0]?.props).toEqual({ text: "Hello" });
     expect(copy.children?.[0]?.styles).toEqual({ color: "#111" });
+    expect(copy.hidden).toBeUndefined();
+    expect(copy.locked).toBeUndefined();
 
     // Mutating the clone must not touch the source subtree.
     copy.children![0]!.props!.text = "Changed";
