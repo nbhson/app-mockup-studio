@@ -9,7 +9,7 @@ import { useDocumentStore, topMostIds } from "../../stores/document";
 import { useEditorStore } from "../../stores/editor";
 import { useProjectsStore } from "../../stores/projects";
 import { resolveNode, type ResolvedElement } from "@ai-mockup-studio/ui-renderer";
-import { findNode, findParent } from "@ai-mockup-studio/ui-schema";
+import { findNode, findParent, type ViewportMode } from "@ai-mockup-studio/ui-schema";
 import { buildNodeFromType } from "../../stores/editor";
 import { cloneWithNewIds } from "./clone-nodes";
 import SchemaNode from "./SchemaNode.vue";
@@ -35,6 +35,7 @@ interface ResizePreview {
 interface ResizeState {
   dir: ResizeDir;
   targetId: string;
+  mode: ViewportMode;
   startX: number;
   startY: number;
   startWidth: number;
@@ -61,8 +62,9 @@ const MIN_HEIGHT = 16;
 
 // --- Responsive preview (GĐ 5.3) --------------------------------------------
 // Preview widths are transient UI state: switching device never mutates the
-// document, so autosave does not fire. Desktop keeps the document's own width.
-type PreviewDevice = "desktop" | "tablet" | "mobile";
+// document. Edits made while previewing tablet/mobile are stored as breakpoint
+// overrides (`responsive.tablet/mobile`) instead of touching the base styles.
+type PreviewDevice = ViewportMode;
 
 interface DeviceOption {
   id: PreviewDevice;
@@ -76,7 +78,7 @@ const deviceOptions: DeviceOption[] = [
   { id: "mobile", label: "Mobile", width: 390 },
 ];
 
-const previewDevice = ref<PreviewDevice>("desktop");
+const previewDevice = computed(() => doc.viewportMode);
 
 const previewWidth = computed(() => {
   if (previewDevice.value === "desktop") {
@@ -198,7 +200,14 @@ const resizeHandles: { dir: ResizeDir; className: string }[] = [
 ];
 
 const resolved = computed(() =>
-  doc.document ? resolveNode(doc.document.root, doc.document.theme) : null,
+  doc.document
+    ? resolveNode(
+        doc.document.root,
+        doc.document.theme,
+        undefined,
+        doc.viewportMode,
+      )
+    : null,
 );
 
 /** Apply the transient resize preview to the rendered tree (not persisted). */
@@ -300,15 +309,21 @@ function startResize(e: PointerEvent, dir: ResizeDir) {
 
   const node = doc.selectedNode;
   const rect = selectionRect.value;
+  const mode = doc.viewportMode;
+  const effective = {
+    ...(node?.styles ?? {}),
+    ...(mode === "desktop" ? {} : (node?.responsive?.[mode] ?? {})),
+  };
   resizeState.value = {
     dir,
     targetId: doc.selectedId,
+    mode,
     startX: e.clientX,
     startY: e.clientY,
     startWidth:
-      typeof node?.styles?.width === "number" ? node.styles.width : rect.width,
+      typeof effective.width === "number" ? effective.width : rect.width,
     startHeight:
-      typeof node?.styles?.height === "number" ? node.styles.height : rect.height,
+      typeof effective.height === "number" ? effective.height : rect.height,
   };
 
   document.body.style.userSelect = "none";
@@ -352,9 +367,22 @@ function onResizeEnd() {
   if (preview.height !== undefined) styles.height = preview.height;
   if (Object.keys(styles).length === 0) return;
 
+  if (state.mode === "desktop") {
+    doc.applyPatches(
+      [{ op: "style", targetId: state.targetId, styles }],
+      "Resize component",
+    );
+    return;
+  }
+  // Responsive preview: resizing writes a breakpoint override, leaving the
+  // desktop/base styles untouched.
+  const changes: Record<string, number> = {};
+  for (const [key, value] of Object.entries(styles)) {
+    changes[`responsive.${state.mode}.${key}`] = value;
+  }
   doc.applyPatches(
-    [{ op: "style", targetId: state.targetId, styles }],
-    "Resize component",
+    [{ op: "update", targetId: state.targetId, changes }],
+    `Resize component (${state.mode})`,
   );
 }
 
@@ -700,7 +728,7 @@ onBeforeUnmount(() => {
           "
           :aria-pressed="previewDevice === device.id"
           :title="`Xem trước ${device.label}`"
-          @click="previewDevice = device.id"
+          @click="doc.setViewportMode(device.id)"
         >
           {{ device.label }}
           <span class="ml-1 text-[10px] text-slate-400">

@@ -15,6 +15,7 @@ import {
   type UiPatch,
   type UiDocument,
   type Theme,
+  type ViewportMode,
 } from "@ai-mockup-studio/ui-schema";
 import { defaultTokens, type DesignTokens } from "@ai-mockup-studio/design-system";
 
@@ -35,14 +36,23 @@ export interface ResolvedElement {
   children?: ResolvedElement[];
 }
 
-/** Resolve a UiNode using the component registry + theme + tokens. */
+/** Resolve a UiNode using the component registry + theme + tokens.
+ *  `viewport` selects the breakpoint override merged on top of the base styles
+ *  (desktop = base styles only). */
 export function resolveNode(
   node: UiNode,
   theme: Theme = defaultTheme(),
   tokens: DesignTokens = defaultTokens,
+  viewport: ViewportMode = "desktop",
 ): ResolvedElement {
   const def = getComponentDefinition(node.type);
-  const styles: Record<string, unknown> = { ...(def?.defaultStyles ?? {}), ...(node.styles ?? {}) };
+  const override =
+    viewport === "desktop" ? undefined : node.responsive?.[viewport];
+  const styles: Record<string, unknown> = {
+    ...(def?.defaultStyles ?? {}),
+    ...(node.styles ?? {}),
+    ...(override ?? {}),
+  };
   if (node.type === "basic.button") {
     styles.backgroundColor = styles.backgroundColor ?? theme.primary;
     styles.color = styles.color ?? theme.primaryForeground;
@@ -53,7 +63,7 @@ export function resolveNode(
   // Design-token radius (P2.7): components using their registry default radius
   // follow the document token; an explicitly overridden radius still wins.
   const defaultRadius = def?.defaultStyles?.borderRadius;
-  const explicitRadius = node.styles?.borderRadius;
+  const explicitRadius = override?.borderRadius ?? node.styles?.borderRadius;
   if (
     typeof styles.borderRadius === "number" &&
     (explicitRadius === undefined || explicitRadius === defaultRadius)
@@ -71,12 +81,15 @@ export function resolveNode(
     locked: node.locked,
     props: { ...(def?.defaultProps ?? {}), ...(node.props ?? {}) },
     styles,
-    children: node.children?.map((c) => resolveNode(c, theme, tokens)),
+    children: node.children?.map((c) => resolveNode(c, theme, tokens, viewport)),
   };
 }
 
-export function resolveDocument(doc: UiDocument): ResolvedElement {
-  return resolveNode(doc.root, doc.theme, defaultTokens);
+export function resolveDocument(
+  doc: UiDocument,
+  viewport: ViewportMode = "desktop",
+): ResolvedElement {
+  return resolveNode(doc.root, doc.theme, defaultTokens, viewport);
 }
 
 export function defaultTheme(): Theme {

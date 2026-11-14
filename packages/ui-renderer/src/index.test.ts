@@ -55,6 +55,18 @@ describe("applyPatchBatch", () => {
     expect(btn.styles?.width).toBe(120);
   });
 
+  it("applies a responsive override via dot paths without touching base styles", () => {
+    const patch: UiPatch = {
+      op: "update",
+      targetId: "btn",
+      changes: { "responsive.mobile.width": 100 },
+    };
+    const next = applyPatchBatch(makeDoc(), [patch]);
+    const btn = next.root.children![1].children![0];
+    expect(btn.responsive?.mobile?.width).toBe(100);
+    expect(btn.styles?.width).toBeUndefined();
+  });
+
   it("adds a node to a container", () => {
     const patch: UiPatch = {
       op: "add",
@@ -128,5 +140,40 @@ describe("resolveDocument", () => {
     // the canvas can render a safe placeholder without crashing.
     expect(resolved.known).toBe(true);
     expect(resolved.children?.find((c) => c.id === "mystery")?.known).toBe(false);
+  });
+
+  it("merges tablet/mobile overrides over the base styles", () => {
+    const doc = makeDoc();
+    const content = doc.root.children!.find((c) => c.id === "content")!;
+    content.styles = { padding: 24, width: 600 };
+    content.responsive = {
+      tablet: { padding: 16 },
+      mobile: { padding: 12, width: 320 },
+    };
+
+    const stylesOf = (root: ReturnType<typeof resolveDocument>) =>
+      root.children!.find((c) => c.id === "content")!.styles;
+
+    const desktop = stylesOf(resolveDocument(doc));
+    expect(desktop.padding).toBe(24);
+    expect(desktop.width).toBe(600);
+
+    const tablet = stylesOf(resolveDocument(doc, "tablet"));
+    expect(tablet.padding).toBe(16);
+    expect(tablet.width).toBe(600); // not overridden → inherits desktop
+
+    const mobile = stylesOf(resolveDocument(doc, "mobile"));
+    expect(mobile.padding).toBe(12);
+    expect(mobile.width).toBe(320);
+  });
+
+  it("keeps base styles untouched when resolving a breakpoint", () => {
+    const doc = makeDoc();
+    const content = doc.root.children!.find((c) => c.id === "content")!;
+    content.styles = { width: 600 };
+    content.responsive = { mobile: { width: 320 } };
+
+    resolveDocument(doc, "mobile");
+    expect(content.styles.width).toBe(600);
   });
 });

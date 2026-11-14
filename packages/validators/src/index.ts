@@ -33,6 +33,13 @@ const uiStylesSchema = z
   })
   .passthrough();
 
+const responsiveStylesSchema = z
+  .object({
+    tablet: uiStylesSchema.optional(),
+    mobile: uiStylesSchema.optional(),
+  })
+  .passthrough();
+
 export const uiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
   z.object({
     id: z.string().min(1),
@@ -40,6 +47,7 @@ export const uiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
     name: z.string().optional(),
     hidden: z.boolean().optional(),
     locked: z.boolean().optional(),
+    responsive: responsiveStylesSchema.optional(),
     props: z.record(z.string(), z.unknown()).optional(),
     styles: uiStylesSchema.optional(),
     children: z.array(uiNodeSchema).optional(),

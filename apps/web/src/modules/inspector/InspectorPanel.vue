@@ -7,11 +7,33 @@
 // utilities on the page read the CSS custom properties set by the canvas, and
 // the renderer derives button/radius colors from the same theme.
 import { computed, ref, watch } from "vue";
-import type { Theme } from "@ai-mockup-studio/ui-schema";
+import type {
+  Theme,
+  UiDocument,
+  UiStyles,
+  ViewportMode,
+} from "@ai-mockup-studio/ui-schema";
+import { findNode } from "@ai-mockup-studio/ui-schema";
 import { useDocumentStore } from "../../stores/document";
 import { applyPatchBatch } from "@ai-mockup-studio/ui-renderer";
 
 const doc = useDocumentStore();
+
+const isResponsive = computed(() => doc.viewportMode !== "desktop");
+const modeLabel = computed(() =>
+  doc.viewportMode === "tablet" ? "Tablet" : "Mobile",
+);
+const activeOverride = computed<UiStyles | undefined>(() => {
+  const mode = doc.viewportMode;
+  if (mode === "desktop") return undefined;
+  return doc.selectedNode?.responsive?.[mode];
+});
+
+/** Styles shown in the inspector: base styles + the active breakpoint. */
+const effectiveStyles = computed<UiStyles>(() => ({
+  ...(doc.selectedNode?.styles ?? {}),
+  ...(activeOverride.value ?? {}),
+}));
 
 const width = ref<number | null>(null);
 const height = ref<number | null>(null);
@@ -19,29 +41,62 @@ const padding = ref<number | null>(null);
 const color = ref<string | null>(null);
 
 watch(
-  () => doc.selectedNode,
-  (node) => {
-    width.value = typeof node?.styles?.width === "number" ? (node.styles.width as number) : null;
-    height.value = typeof node?.styles?.height === "number" ? (node.styles.height as number) : null;
-    padding.value = typeof node?.styles?.padding === "number" ? (node.styles.padding as number) : null;
-    color.value = (node?.styles?.color as string) ?? (node?.styles?.backgroundColor as string) ?? null;
+  effectiveStyles,
+  (styles) => {
+    width.value = typeof styles.width === "number" ? styles.width : null;
+    height.value = typeof styles.height === "number" ? styles.height : null;
+    padding.value = typeof styles.padding === "number" ? styles.padding : null;
+    color.value = (styles.color as string) ?? (styles.backgroundColor as string) ?? null;
   },
   { immediate: true },
 );
 
+function hasOverride(key: keyof UiStyles): boolean {
+  return activeOverride.value?.[key] !== undefined;
+}
+
 function commit(styles: Record<string, unknown>, description: string) {
   if (!doc.document || !doc.selectedId) return;
-  const patches = [
-    {
-      op: "style" as const,
-      targetId: doc.selectedId,
-      styles,
-    },
-  ];
+  const mode: ViewportMode = doc.viewportMode;
+  // Desktop edits the base styles. Tablet/mobile edits write a breakpoint
+  // override via dot paths, so the desktop layout stays untouched.
+  const patches =
+    mode === "desktop"
+      ? [{ op: "style" as const, targetId: doc.selectedId, styles }]
+      : [
+          {
+            op: "update" as const,
+            targetId: doc.selectedId,
+            changes: Object.fromEntries(
+              Object.entries(styles).map(([key, value]) => [
+                `responsive.${mode}.${key}`,
+                value,
+              ]),
+            ),
+          },
+        ];
   // Reuse the shared patch application to build the next immutable document,
   // then hand it to the store (which records it as a command).
   const next = applyPatchBatch(doc.document, patches);
-  doc.mutate(next, description);
+  doc.mutate(next, mode === "desktop" ? description : `${description} (${mode})`);
+}
+
+/** Remove one breakpoint override so the node inherits the desktop value. */
+function clearOverride(key: keyof UiStyles) {
+  const mode = doc.viewportMode;
+  if (!doc.document || !doc.selectedId || mode === "desktop") return;
+  if (!hasOverride(key)) return;
+
+  const next = JSON.parse(JSON.stringify(doc.document)) as UiDocument;
+  const node = findNode(next.root, doc.selectedId);
+  const styles = node?.responsive?.[mode];
+  if (!node || !styles) return;
+  delete styles[key];
+  if (Object.keys(styles).length === 0) delete node.responsive?.[mode];
+  if (node.responsive && Object.keys(node.responsive).length === 0) {
+    delete node.responsive;
+  }
+  doc.mutate(next, `Xóa override ${key} (${mode})`);
 }
 
 function onWidth(e: Event) {
@@ -169,9 +224,38 @@ function onMode(e: Event) {
           <div class="text-xs text-slate-400">id: {{ doc.selectedNode.id }}</div>
         </div>
 
+        <div
+          v-if="isResponsive"
+          class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-700"
+        >
+          Đang chỉnh <strong>{{ modeLabel }}</strong>: thay đổi được lưu thành
+          override breakpoint, desktop giữ nguyên.
+        </div>
+
         <div class="space-y-3 text-sm">
           <label class="block">
-            <span class="mb-1 block text-xs text-slate-500">Width (px)</span>
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span>Width (px)</span>
+              <button
+                v-if="isResponsive"
+                type="button"
+                class="rounded px-1 text-[10px] disabled:cursor-default"
+                :class="
+                  hasOverride('width')
+                    ? 'text-amber-600 hover:bg-amber-50'
+                    : 'text-slate-300'
+                "
+                :disabled="!hasOverride('width')"
+                :title="
+                  hasOverride('width')
+                    ? 'Xóa override, quay về giá trị desktop'
+                    : 'Đang kế thừa giá trị desktop'
+                "
+                @click.prevent.stop="clearOverride('width')"
+              >
+                {{ hasOverride("width") ? "override ×" : "kế thừa" }}
+              </button>
+            </span>
             <input
               :value="width ?? ''"
               type="number"
@@ -182,7 +266,28 @@ function onMode(e: Event) {
           </label>
 
           <label class="block">
-            <span class="mb-1 block text-xs text-slate-500">Height (px)</span>
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span>Height (px)</span>
+              <button
+                v-if="isResponsive"
+                type="button"
+                class="rounded px-1 text-[10px] disabled:cursor-default"
+                :class="
+                  hasOverride('height')
+                    ? 'text-amber-600 hover:bg-amber-50'
+                    : 'text-slate-300'
+                "
+                :disabled="!hasOverride('height')"
+                :title="
+                  hasOverride('height')
+                    ? 'Xóa override, quay về giá trị desktop'
+                    : 'Đang kế thừa giá trị desktop'
+                "
+                @click.prevent.stop="clearOverride('height')"
+              >
+                {{ hasOverride("height") ? "override ×" : "kế thừa" }}
+              </button>
+            </span>
             <input
               :value="height ?? ''"
               type="number"
@@ -193,7 +298,28 @@ function onMode(e: Event) {
           </label>
 
           <label class="block">
-            <span class="mb-1 block text-xs text-slate-500">Padding (px)</span>
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span>Padding (px)</span>
+              <button
+                v-if="isResponsive"
+                type="button"
+                class="rounded px-1 text-[10px] disabled:cursor-default"
+                :class="
+                  hasOverride('padding')
+                    ? 'text-amber-600 hover:bg-amber-50'
+                    : 'text-slate-300'
+                "
+                :disabled="!hasOverride('padding')"
+                :title="
+                  hasOverride('padding')
+                    ? 'Xóa override, quay về giá trị desktop'
+                    : 'Đang kế thừa giá trị desktop'
+                "
+                @click.prevent.stop="clearOverride('padding')"
+              >
+                {{ hasOverride("padding") ? "override ×" : "kế thừa" }}
+              </button>
+            </span>
             <input
               :value="padding ?? ''"
               type="number"
@@ -204,7 +330,28 @@ function onMode(e: Event) {
           </label>
 
           <div v-if="color">
-            <span class="mb-1 block text-xs text-slate-500">Color</span>
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span>Color</span>
+              <button
+                v-if="isResponsive"
+                type="button"
+                class="rounded px-1 text-[10px] disabled:cursor-default"
+                :class="
+                  hasOverride('color')
+                    ? 'text-amber-600 hover:bg-amber-50'
+                    : 'text-slate-300'
+                "
+                :disabled="!hasOverride('color')"
+                :title="
+                  hasOverride('color')
+                    ? 'Xóa override, quay về giá trị desktop'
+                    : 'Đang kế thừa giá trị desktop'
+                "
+                @click.prevent.stop="clearOverride('color')"
+              >
+                {{ hasOverride("color") ? "override ×" : "kế thừa" }}
+              </button>
+            </span>
             <input
               :value="color"
               type="color"

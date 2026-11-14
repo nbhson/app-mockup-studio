@@ -253,6 +253,10 @@ async function main() {
     type: "basic.image",
     hidden: true,
     locked: true,
+    responsive: {
+      tablet: { width: 180 },
+      mobile: { width: 120, opacity: 0.5 },
+    },
     props: { src: dupAsset.url, alt: "duplicate" },
   });
   await request("POST", `/projects/${project.id}/document`, {
@@ -281,6 +285,13 @@ async function main() {
     "hidden/locked layer flags survive save and duplicate",
     copiedImage?.hidden === true && copiedImage?.locked === true,
     JSON.stringify({ hidden: copiedImage?.hidden, locked: copiedImage?.locked }),
+  );
+  check(
+    "responsive overrides survive save and duplicate",
+    copiedImage?.responsive?.tablet?.width === 180 &&
+      copiedImage?.responsive?.mobile?.width === 120 &&
+      copiedImage?.responsive?.mobile?.opacity === 0.5,
+    JSON.stringify(copiedImage?.responsive),
   );
 
   const copiedAssets = (

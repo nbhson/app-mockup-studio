@@ -106,6 +106,11 @@ export const useDocumentStore = defineStore("document", () => {
   const primarySelectedId = ref<string | null>(null);
   const viewportMode = ref<ViewportMode>("desktop");
 
+  /** Switch the preview breakpoint (desktop/tablet/mobile). */
+  function setViewportMode(mode: ViewportMode) {
+    viewportMode.value = mode;
+  }
+
   const selectedId = computed<string | null>({
     get: () => primarySelectedId.value,
     set: (id) => setSelection(id ? [id] : [], id),
@@ -419,6 +424,7 @@ export const useDocumentStore = defineStore("document", () => {
     selectedId,
     selectedIds,
     viewportMode,
+    setViewportMode,
     selectedNode,
     selectedNodes,
     setSelection,

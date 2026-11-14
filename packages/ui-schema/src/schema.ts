@@ -71,9 +71,17 @@ export interface UiNode {
   hidden?: boolean;
   /** Locked nodes cannot be selected/resized/moved from the canvas. */
   locked?: boolean;
+  /** Per-breakpoint style overrides (desktop uses `styles` as the base). */
+  responsive?: ResponsiveStyles;
   props?: Record<string, unknown>;
   styles?: UiStyles;
   children?: UiNode[];
+}
+
+/** Tablet/mobile overrides merged on top of the base (desktop) styles. */
+export interface ResponsiveStyles {
+  tablet?: UiStyles;
+  mobile?: UiStyles;
 }
 
 /** The container/hierarchy rules per component type family. */
