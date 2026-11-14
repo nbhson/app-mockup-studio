@@ -58,7 +58,7 @@ function onKeydown(e: KeyboardEvent) {
 
 function applyFixes(selected: AccessibilityIssue[] = issues.value) {
   if (!doc.document) return;
-  const next = applyAccessibilityFixes(doc.document, selected);
+  const next = applyAccessibilityFixes(doc.document, selected, doc.viewportMode);
   if (!next) return;
   doc.mutate(next, "Sửa lỗi accessibility");
   appliedMessage.value = `Đã áp dụng ${selected.filter((i) => i.fixStyles).length} sửa đổi.`;

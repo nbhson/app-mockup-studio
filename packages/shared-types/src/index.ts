@@ -115,6 +115,46 @@ export interface AiEditResult {
   summary: string;
 }
 
+// --- AI design critique (plan/07 3.5) --------------------------------------
+
+export type CritiqueCategory =
+  | "hierarchy"
+  | "spacing"
+  | "contrast"
+  | "consistency"
+  | "accessibility"
+  | "content";
+
+export type CritiqueSeverity = "high" | "medium" | "low";
+
+export interface CritiqueFinding {
+  id: string;
+  category: CritiqueCategory;
+  severity: CritiqueSeverity;
+  title: string;
+  detail: string;
+  suggestion: string;
+  /** Optional node the finding refers to (null for document-level notes). */
+  nodeId?: string | null;
+  /** Optional safe style fix the user can apply in one click. */
+  fixStyles?: Record<string, unknown> | null;
+}
+
+export interface DesignCritiqueRequestBody {
+  document: UiDocument;
+  viewportMode?: ViewportMode | null;
+}
+
+export interface DesignCritiqueResult {
+  /** Overall design quality score, 0–100. */
+  score: number;
+  summary: string;
+  findings: CritiqueFinding[];
+  /** `ai` when a real model answered, `heuristic` for the offline analyzer. */
+  source: "ai" | "heuristic";
+  model?: string | null;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

@@ -126,6 +126,57 @@ export function buildEditUserPrompt(
   ].join("\n");
 }
 
+// --- Design critique (plan/07 3.5) -----------------------------------------
+
+export function buildCritiqueSystemPrompt(): string {
+  return [
+    `You are a senior product designer reviewing a UI mockup built with AI Mockup Studio.`,
+    `You receive a UiDocument JSON (structured UI schema, never HTML/CSS) and a viewport.`,
+    `Evaluate the design like a design review: visual hierarchy, spacing rhythm, contrast,`,
+    `consistency with the design tokens, accessibility and content quality.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Be specific and actionable. Reference node ids when a finding targets a component.`,
+    `- Do not invent components that are not in the document.`,
+    `- Prefer 3–8 findings; do not pad the list with trivial observations.`,
+    `- "severity" is "high" (blocks usability), "medium" (noticeable quality issue) or "low" (polish).`,
+    `- "score" is an overall design quality score from 0 to 100.`,
+    `- Only include "fixStyles" when a style change on "nodeId" fully resolves the finding.`,
+    `  Allowed keys: width, height, minWidth, minHeight, padding, margin, gap, display,`,
+    `  flex, flexDirection, flexWrap, flexShrink, alignItems, justifyContent,`,
+    `  backgroundColor, color, fontSize, fontWeight, borderWidth, borderColor,`,
+    `  borderRadius, opacity. Values must be numbers or CSS strings already supported by the schema.`,
+    ``,
+    `RESPONSE SHAPE:`,
+    `{`,
+    `  "score": 0-100,`,
+    `  "summary": "<2–4 sentence overall assessment in Vietnamese>",`,
+    `  "findings": [`,
+    `    { "id": "<stable id>", "category": "hierarchy|spacing|contrast|consistency|accessibility|content",`,
+    `      "severity": "high|medium|low", "title": "<short Vietnamese title>",`,
+    `      "detail": "<what is wrong and where>", "suggestion": "<concrete next action>",`,
+    `      "nodeId": "<node id or null>", "fixStyles": { ... } | null }`,
+    `  ]`,
+    `}`,
+  ].join("\n");
+}
+
+export function buildCritiqueUserPrompt(
+  document: UiDocument,
+  viewportMode: string = "desktop",
+): string {
+  return [
+    `Review this UI mockup for the "${viewportMode}" breakpoint.`,
+    `The theme tokens are part of the document ("theme"). Flag values that drift from them.`,
+    ``,
+    `DOCUMENT (JSON):`,
+    JSON.stringify(document, null, 2),
+    ``,
+    `Return the critique JSON now.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

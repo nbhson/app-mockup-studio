@@ -11,6 +11,8 @@ import type {
   GenerateResult,
   AiEditRequestBody,
   AiEditResult,
+  DesignCritiqueRequestBody,
+  DesignCritiqueResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -36,5 +38,11 @@ export class AiController {
   @Post("edit")
   async edit(@Body() body: AiEditRequestBody): Promise<AiEditResult> {
     return this.ai.edit(body);
+  }
+
+  /** Design critique: score + actionable findings for the current document. */
+  @Post("critique")
+  async critique(@Body() body: DesignCritiqueRequestBody): Promise<DesignCritiqueResult> {
+    return this.ai.critique(body);
   }
 }

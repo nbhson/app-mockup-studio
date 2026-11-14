@@ -237,6 +237,33 @@ async function main() {
       uiDocumentSchema.safeParse(edited.document).success,
   );
 
+  const critique = (
+    await request("POST", "/ai/critique", {
+      body: { document: generated.document, viewportMode: "mobile" },
+    })
+  ).payload;
+  check(
+    "AI critique returns a score, summary and findings",
+    typeof critique.score === "number" &&
+      critique.score >= 0 &&
+      critique.score <= 100 &&
+      typeof critique.summary === "string" &&
+      Array.isArray(critique.findings),
+    JSON.stringify({ score: critique.score, findings: critique.findings?.length }),
+  );
+  check("AI critique works offline with the heuristic analyzer", critique.source === "heuristic");
+  check(
+    "AI critique findings are well-formed",
+    critique.findings.every(
+      (finding) =>
+        typeof finding.id === "string" &&
+        typeof finding.category === "string" &&
+        ["high", "medium", "low"].includes(finding.severity) &&
+        typeof finding.title === "string" &&
+        typeof finding.suggestion === "string",
+    ),
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -307,6 +334,7 @@ async function main() {
   check("metrics recorded requests", metrics.requests.total >= 10, `total=${metrics.requests.total}`);
   check("metrics recorded AI generate", metrics.ai.generate.requests >= 1);
   check("metrics recorded AI edit", metrics.ai.edit.requests >= 1);
+  check("metrics recorded AI critique", metrics.ai.critique.requests >= 1);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),

@@ -16,6 +16,8 @@ import SchemaNode from "./SchemaNode.vue";
 import AssetsDialog from "../assets/AssetsDialog.vue";
 import ExportCodeDialog from "../export/ExportCodeDialog.vue";
 import AccessibilityDialog from "../analysis/AccessibilityDialog.vue";
+import ConsistencyDialog from "../analysis/ConsistencyDialog.vue";
+import DesignCritiqueDialog from "../analysis/DesignCritiqueDialog.vue";
 
 const doc = useDocumentStore();
 const editor = useEditorStore();
@@ -26,6 +28,8 @@ const layoutTick = ref(0);
 const showAssets = ref(false);
 const showCode = ref(false);
 const showA11y = ref(false);
+const showConsistency = ref(false);
+const showCritique = ref(false);
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -777,10 +781,26 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="AI đánh giá thiết kế: hierarchy, spacing, contrast, token"
+          @click="showCritique = true"
+        >
+          ✨ Critique
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="Kiểm tra accessibility theo WCAG AA"
           @click="showA11y = true"
         >
           ♿ Kiểm tra
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
+          title="Kiểm tra style lệch design token"
+          @click="showConsistency = true"
+        >
+          🎨 Nhất quán
         </button>
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
@@ -894,5 +914,7 @@ onBeforeUnmount(() => {
     <AssetsDialog :open="showAssets" @close="showAssets = false" />
     <ExportCodeDialog :open="showCode" @close="showCode = false" />
     <AccessibilityDialog :open="showA11y" @close="showA11y = false" />
+    <ConsistencyDialog :open="showConsistency" @close="showConsistency = false" />
+    <DesignCritiqueDialog :open="showCritique" @close="showCritique = false" />
   </div>
 </template>

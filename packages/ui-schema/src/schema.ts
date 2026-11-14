@@ -51,6 +51,7 @@ export interface UiStyles {
   justifyContent?: string;
   backgroundColor?: string;
   color?: string;
+  fontFamily?: string;
   fontSize?: number | string;
   fontWeight?: number | string;
   borderWidth?: number;

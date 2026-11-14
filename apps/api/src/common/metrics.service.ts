@@ -9,7 +9,7 @@ import { Injectable } from "@nestjs/common";
 // OpenTelemetry instead of keeping it in memory.
 // ---------------------------------------------------------------------------
 
-export type AiKind = "generate" | "edit";
+export type AiKind = "generate" | "edit" | "critique";
 export type AiOutcome = "ok" | "mock" | "fallback" | "error";
 export type AiUsage = {
   promptTokens?: number;
@@ -96,6 +96,7 @@ export class MetricsService {
   private readonly ai: Record<AiKind, AiMetric> = {
     generate: emptyAiMetric(),
     edit: emptyAiMetric(),
+    critique: emptyAiMetric(),
   };
 
   recordRequest(method: string, route: string, status: number, durationMs: number): void {
@@ -164,8 +165,12 @@ export class MetricsService {
       alerts.push(`latency_p95 ${p95}ms > ${maxP95}ms`);
     }
 
-    const aiRequests = this.ai.generate.requests + this.ai.edit.requests;
-    const aiFallbacks = this.ai.generate.byOutcome.fallback + this.ai.edit.byOutcome.fallback;
+    const aiRequests =
+      this.ai.generate.requests + this.ai.edit.requests + this.ai.critique.requests;
+    const aiFallbacks =
+      this.ai.generate.byOutcome.fallback +
+      this.ai.edit.byOutcome.fallback +
+      this.ai.critique.byOutcome.fallback;
     if (aiRequests >= 5) {
       const fallbackRate = aiFallbacks / aiRequests;
       const maxFallbackRate = envNumber("METRICS_AI_FALLBACK_THRESHOLD", 0.2);
@@ -207,6 +212,7 @@ export class MetricsService {
       ai: {
         generate: { ...this.ai.generate, totalMs: round(this.ai.generate.totalMs) },
         edit: { ...this.ai.edit, totalMs: round(this.ai.edit.totalMs) },
+        critique: { ...this.ai.critique, totalMs: round(this.ai.critique.totalMs) },
       },
       alerts,
     };

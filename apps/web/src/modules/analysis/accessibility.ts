@@ -103,6 +103,7 @@ export function analyzeAccessibility(
 export function applyAccessibilityFixes(
   doc: UiDocument,
   issues: AccessibilityIssue[],
+  viewport: ViewportMode = "desktop",
 ): UiDocument | null {
   const byNode = new Map<string, Record<string, unknown>>();
   for (const issue of issues) {
@@ -115,11 +116,23 @@ export function applyAccessibilityFixes(
   if (byNode.size === 0) return null;
   return applyPatchBatch(
     doc,
-    [...byNode].map(([targetId, styles]) => ({
-      op: "style" as const,
-      targetId,
-      styles,
-    })),
+    [...byNode].map(([targetId, styles]) => {
+      // Fixes for a tablet/mobile audit become breakpoint overrides so the
+      // desktop layout is not silently changed.
+      if (viewport === "desktop") {
+        return { op: "style" as const, targetId, styles };
+      }
+      return {
+        op: "update" as const,
+        targetId,
+        changes: Object.fromEntries(
+          Object.entries(styles).map(([key, value]) => [
+            `responsive.${viewport}.${key}`,
+            value,
+          ]),
+        ),
+      };
+    }),
   );
 }
 

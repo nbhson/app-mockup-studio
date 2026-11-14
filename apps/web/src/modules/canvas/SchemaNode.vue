@@ -80,6 +80,7 @@ function styleFor(el: ResolvedElement): Record<string, string> {
   if (raw.justifyContent) s.justifyContent = String(raw.justifyContent);
   if (raw.backgroundColor) s.backgroundColor = String(raw.backgroundColor);
   if (raw.color) s.color = String(raw.color);
+  if (raw.fontFamily) s.fontFamily = String(raw.fontFamily);
   if (raw.fontSize !== undefined) s.fontSize = px(raw.fontSize)!;
   if (raw.fontWeight !== undefined) s.fontWeight = String(raw.fontWeight);
   if (raw.borderRadius !== undefined) s.borderRadius = px(raw.borderRadius)!;

@@ -66,6 +66,7 @@ function baseStyles(el: ResolvedElement): Record<string, string> {
   set("justifyContent", str(raw.justifyContent));
   set("backgroundColor", str(raw.backgroundColor));
   set("color", str(raw.color));
+  set("fontFamily", str(raw.fontFamily));
   set("fontSize", px(raw.fontSize));
   if (raw.fontWeight !== undefined) s.fontWeight = String(raw.fontWeight);
   set("borderRadius", px(raw.borderRadius));

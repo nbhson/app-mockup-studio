@@ -4,12 +4,17 @@ import type {
   AiEditResult,
   GenerateRequestBody,
   AiEditRequestBody,
+  DesignCritiqueRequestBody,
+  DesignCritiqueResult,
+  CritiqueFinding,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
   uiPatchSchema,
   generateRequestSchema,
   aiEditRequestSchema,
+  critiqueRequestSchema,
+  critiqueResponseSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
@@ -18,6 +23,7 @@ import {
   knownComponentTypes,
   type UiDocument,
   type UiPatch,
+  type ViewportMode,
 } from "@ai-mockup-studio/ui-schema";
 import { applyPatchBatch } from "@ai-mockup-studio/ui-renderer";
 import {
@@ -25,10 +31,13 @@ import {
   buildGenerationUserPrompt,
   buildEditSystemPrompt,
   buildEditUserPrompt,
+  buildCritiqueSystemPrompt,
+  buildCritiqueUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
 import { OpenAIProviderService } from "./providers/openai.provider";
+import { heuristicCritique } from "./critique";
 
 // ---------------------------------------------------------------------------
 // AI Orchestrator (plan/04, plan/09 8.3 AI reliability).
@@ -202,6 +211,88 @@ export class AiService {
     throw new BadRequestException(`AI không thể tạo patch hợp lệ: ${lastError}`);
   }
 
+  /**
+   * Design critique (plan/07 3.5): evaluate the document like a senior designer
+   * and return a score + actionable findings. Falls back to the deterministic
+   * analyzer so the feature works without an API key.
+   */
+  async critique(body: DesignCritiqueRequestBody): Promise<DesignCritiqueResult> {
+    const started = performance.now();
+    const parsed = critiqueRequestSchema.parse(body);
+    const viewport = (parsed.viewportMode ?? "desktop") as ViewportMode;
+
+    if (!this.useRealLLM) {
+      const result = heuristicCritique(parsed.document, viewport);
+      this.metrics.recordAi("critique", "mock", performance.now() - started);
+      return result;
+    }
+
+    const system = buildCritiqueSystemPrompt();
+    const user = buildCritiqueUserPrompt(parsed.document, viewport);
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 3000, temperature: 0.3 },
+        );
+        usage.promptTokens = (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const raw = extractJson(result.text);
+        const response = critiqueResponseSchema.parse(JSON.parse(raw));
+        const validIds = new Set(collectIds(parsed.document.root));
+        const findings: CritiqueFinding[] = response.findings.map((finding, index) => ({
+          id: finding.id ?? `ai-${index + 1}`,
+          category: finding.category,
+          severity: finding.severity,
+          title: finding.title,
+          detail: finding.detail,
+          suggestion: finding.suggestion,
+          nodeId:
+            finding.nodeId && validIds.has(finding.nodeId) ? finding.nodeId : null,
+          fixStyles: sanitizeFixStyles(finding.fixStyles),
+        }));
+        this.metrics.recordAi(
+          "critique",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          score: Math.round(response.score),
+          summary: response.summary,
+          findings,
+          source: "ai",
+          model: result.model,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "critique",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    const fallback = heuristicCritique(parsed.document, viewport);
+    return {
+      ...fallback,
+      summary: `⚠️ AI không trả về critique hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+    };
+  }
+
   testConnection() {
     return this.openAI.testConnection();
   }
@@ -257,4 +348,48 @@ function validatePatchTargets(patch: UiPatch, doc: UiDocument): void {
       break;
   }
   void validTypes;
+}
+
+/**
+ * Only allow known UiStyles keys with primitive values, so a model can never
+ * inject arbitrary style objects into the document through a critique fix.
+ */
+const ALLOWED_FIX_STYLE_KEYS = new Set([
+  "width",
+  "height",
+  "minWidth",
+  "minHeight",
+  "padding",
+  "margin",
+  "gap",
+  "display",
+  "flex",
+  "flexDirection",
+  "flexWrap",
+  "flexShrink",
+  "alignItems",
+  "justifyContent",
+  "backgroundColor",
+  "color",
+  "fontSize",
+  "fontWeight",
+  "borderWidth",
+  "borderColor",
+  "borderRadius",
+  "opacity",
+]);
+
+function sanitizeFixStyles(
+  value: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!value) return null;
+  const styles: Record<string, unknown> = {};
+  for (const [key, styleValue] of Object.entries(value)) {
+    if (!ALLOWED_FIX_STYLE_KEYS.has(key)) continue;
+    if (typeof styleValue === "string") styles[key] = styleValue;
+    else if (typeof styleValue === "number" && Number.isFinite(styleValue)) {
+      styles[key] = styleValue;
+    }
+  }
+  return Object.keys(styles).length > 0 ? styles : null;
 }

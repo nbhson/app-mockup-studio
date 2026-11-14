@@ -24,6 +24,7 @@ const uiStylesSchema = z
     justifyContent: z.string().optional(),
     backgroundColor: z.string().optional(),
     color: z.string().optional(),
+    fontFamily: z.string().optional(),
     fontSize: z.union([z.number(), z.string()]).optional(),
     fontWeight: z.union([z.number(), z.string()]).optional(),
     borderWidth: z.number().optional(),
@@ -163,6 +164,40 @@ export const aiEditRequestSchema = z.object({
   document: uiDocumentSchema,
   targetId: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
+});
+
+export const critiqueCategorySchema = z.enum([
+  "hierarchy",
+  "spacing",
+  "contrast",
+  "consistency",
+  "accessibility",
+  "content",
+]);
+
+export const critiqueSeveritySchema = z.enum(["high", "medium", "low"]);
+
+export const critiqueFindingSchema = z.object({
+  id: z.string().trim().min(1).max(200).optional(),
+  category: critiqueCategorySchema,
+  severity: critiqueSeveritySchema,
+  title: z.string().trim().min(1).max(200),
+  detail: z.string().trim().min(1).max(1200),
+  suggestion: z.string().trim().min(1).max(1200),
+  nodeId: z.string().nullable().optional(),
+  fixStyles: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+/** Shape the model must return (also used to validate the LLM response). */
+export const critiqueResponseSchema = z.object({
+  score: z.number().min(0).max(100),
+  summary: z.string().trim().min(1).max(3000),
+  findings: z.array(critiqueFindingSchema).max(50),
+});
+
+export const critiqueRequestSchema = z.object({
+  document: uiDocumentSchema,
+  viewportMode: z.enum(["desktop", "tablet", "mobile"]).nullable().optional(),
 });
 
 // --- Assets ----------------------------------------------------------------

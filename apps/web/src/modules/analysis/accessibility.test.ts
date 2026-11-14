@@ -140,4 +140,23 @@ describe("applyAccessibilityFixes", () => {
     doc.root.children = [{ id: "img", type: "basic.image", props: { alt: "" } }];
     expect(applyAccessibilityFixes(doc, analyzeAccessibility(doc))).toBeNull();
   });
+
+  it("writes mobile fixes as breakpoint overrides", () => {
+    const doc = makeDoc();
+    doc.root.children = [
+      {
+        id: "text",
+        type: "basic.text",
+        props: { text: "Responsive" },
+        styles: { color: "#0F172A" },
+        responsive: { mobile: { color: "#F8FAFC" } },
+      },
+    ];
+
+    const issues = analyzeAccessibility(doc, "mobile");
+    const fixed = applyAccessibilityFixes(doc, issues, "mobile");
+    const node = fixed!.root.children![0];
+    expect(node.styles?.color).toBe("#0F172A");
+    expect(node.responsive?.mobile?.color).not.toBe("#F8FAFC");
+  });
 });

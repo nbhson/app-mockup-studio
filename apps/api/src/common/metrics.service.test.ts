@@ -63,6 +63,7 @@ describe("MetricsService", () => {
     metrics.recordAi("generate", "ok", 120, { promptTokens: 10, completionTokens: 20 }, 2);
     metrics.recordAi("generate", "fallback", 30);
     metrics.recordAi("edit", "mock", 40, { promptTokens: 5 });
+    metrics.recordAi("critique", "mock", 15);
 
     const snapshot = metrics.snapshot();
 
@@ -79,6 +80,11 @@ describe("MetricsService", () => {
       byOutcome: { ok: 0, mock: 1, fallback: 0, error: 0 },
       promptTokens: 5,
       completionTokens: 0,
+    });
+    expect(snapshot.ai.critique).toMatchObject({
+      requests: 1,
+      byOutcome: { ok: 0, mock: 1, fallback: 0, error: 0 },
+      totalMs: 15,
     });
   });
 
