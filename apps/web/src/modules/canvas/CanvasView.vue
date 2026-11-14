@@ -18,6 +18,7 @@ import ExportCodeDialog from "../export/ExportCodeDialog.vue";
 import AccessibilityDialog from "../analysis/AccessibilityDialog.vue";
 import ConsistencyDialog from "../analysis/ConsistencyDialog.vue";
 import DesignCritiqueDialog from "../analysis/DesignCritiqueDialog.vue";
+import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
 const editor = useEditorStore();
@@ -30,6 +31,7 @@ const showCode = ref(false);
 const showA11y = ref(false);
 const showConsistency = ref(false);
 const showCritique = ref(false);
+const showDummyData = ref(false);
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -781,6 +783,14 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="Điền dữ liệu mẫu cho stats, bảng, biểu đồ và nội dung placeholder"
+          @click="showDummyData = true"
+        >
+          🧪 Dữ liệu mẫu
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="AI đánh giá thiết kế: hierarchy, spacing, contrast, token"
           @click="showCritique = true"
         >
@@ -916,5 +926,6 @@ onBeforeUnmount(() => {
     <AccessibilityDialog :open="showA11y" @close="showA11y = false" />
     <ConsistencyDialog :open="showConsistency" @close="showConsistency = false" />
     <DesignCritiqueDialog :open="showCritique" @close="showCritique = false" />
+    <DummyDataDialog :open="showDummyData" @close="showDummyData = false" />
   </div>
 </template>

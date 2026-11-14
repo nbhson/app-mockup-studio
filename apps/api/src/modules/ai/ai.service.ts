@@ -7,6 +7,9 @@ import type {
   DesignCritiqueRequestBody,
   DesignCritiqueResult,
   CritiqueFinding,
+  DummyDataRequestBody,
+  DummyDataResult,
+  DummyDataChange,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -15,6 +18,8 @@ import {
   aiEditRequestSchema,
   critiqueRequestSchema,
   critiqueResponseSchema,
+  dummyDataRequestSchema,
+  dummyDataResponseSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
@@ -33,11 +38,18 @@ import {
   buildEditUserPrompt,
   buildCritiqueSystemPrompt,
   buildCritiqueUserPrompt,
+  buildDummyDataSystemPrompt,
+  buildDummyDataUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
 import { OpenAIProviderService } from "./providers/openai.provider";
 import { heuristicCritique } from "./critique";
+import {
+  collectDummyTargets,
+  heuristicDummyData,
+  sanitizeDummyProps,
+} from "./dummy-data";
 
 // ---------------------------------------------------------------------------
 // AI Orchestrator (plan/04, plan/09 8.3 AI reliability).
@@ -290,6 +302,133 @@ export class AiService {
     return {
       ...fallback,
       summary: `⚠️ AI không trả về critique hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+    };
+  }
+
+  /**
+   * AI dummy data (plan/07 3.7): fill data-bearing components with believable
+   * demo content. Works offline through the deterministic generator.
+   */
+  async generateDummyData(body: DummyDataRequestBody): Promise<DummyDataResult> {
+    const started = performance.now();
+    const parsed = dummyDataRequestSchema.parse(body);
+    const locale = parsed.locale ?? "vi";
+    const nodeId = parsed.nodeId ?? null;
+
+    const targets = collectDummyTargets(parsed.document, {
+      nodeId,
+      locale,
+      context: parsed.context,
+    });
+
+    if (targets.length === 0) {
+      const empty = heuristicDummyData(parsed.document, {
+        nodeId,
+        locale,
+        context: parsed.context,
+      });
+      this.metrics.recordAi("dummy", "mock", performance.now() - started);
+      return empty;
+    }
+
+    if (!this.useRealLLM) {
+      const result = heuristicDummyData(parsed.document, {
+        nodeId,
+        locale,
+        context: parsed.context,
+      });
+      this.metrics.recordAi("dummy", "mock", performance.now() - started);
+      return result;
+    }
+
+    const system = buildDummyDataSystemPrompt({
+      locale,
+      context: parsed.context,
+      targets: targets.map((target) => ({
+        nodeId: target.node.id,
+        nodeType: target.node.type,
+        allowedProps: target.props,
+      })),
+    });
+    const user = buildDummyDataUserPrompt(parsed.document, parsed.context);
+    const targetById = new Map(targets.map((target) => [target.node.id, target]));
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 3000, temperature: 0.7 },
+        );
+        usage.promptTokens = (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const response = dummyDataResponseSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+
+        const changes: DummyDataChange[] = [];
+        for (const change of response.changes) {
+          const target = targetById.get(change.nodeId);
+          if (!target) continue;
+          const sanitized = sanitizeDummyProps(target.node.type, change.props);
+          if (!sanitized) continue;
+          const selected: Record<string, unknown> = {};
+          for (const key of target.props) {
+            if (sanitized[key] !== undefined) selected[key] = sanitized[key];
+          }
+          if (Object.keys(selected).length === 0) continue;
+          changes.push({
+            nodeId: target.node.id,
+            nodeType: target.node.type,
+            nodeLabel: target.label,
+            props: selected,
+          });
+        }
+
+        if (changes.length === 0) {
+          throw new Error("model returned no valid dummy-data changes");
+        }
+
+        this.metrics.recordAi(
+          "dummy",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          changes,
+          summary: response.summary,
+          source: "ai",
+          model: result.model,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "dummy",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    const fallback = heuristicDummyData(parsed.document, {
+      nodeId,
+      locale,
+      context: parsed.context,
+    });
+    return {
+      ...fallback,
+      summary: `⚠️ AI không trả về dữ liệu hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng dữ liệu mẫu cục bộ. ${fallback.summary}`,
     };
   }
 

@@ -200,6 +200,28 @@ export const critiqueRequestSchema = z.object({
   viewportMode: z.enum(["desktop", "tablet", "mobile"]).nullable().optional(),
 });
 
+export const dummyDataLocaleSchema = z.enum(["vi", "en"]);
+
+export const dummyDataRequestSchema = z.object({
+  document: uiDocumentSchema,
+  nodeId: z.string().nullable().optional(),
+  context: z.string().trim().max(500).optional(),
+  locale: dummyDataLocaleSchema.optional(),
+});
+
+/** Shape the model must return (also used to validate the LLM response). */
+export const dummyDataResponseSchema = z.object({
+  summary: z.string().trim().min(1).max(1000),
+  changes: z
+    .array(
+      z.object({
+        nodeId: z.string().min(1),
+        props: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .max(30),
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

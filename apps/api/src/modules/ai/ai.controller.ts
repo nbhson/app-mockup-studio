@@ -13,6 +13,8 @@ import type {
   AiEditResult,
   DesignCritiqueRequestBody,
   DesignCritiqueResult,
+  DummyDataRequestBody,
+  DummyDataResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -44,5 +46,11 @@ export class AiController {
   @Post("critique")
   async critique(@Body() body: DesignCritiqueRequestBody): Promise<DesignCritiqueResult> {
     return this.ai.critique(body);
+  }
+
+  /** Dummy data: fill data components with realistic sample content. */
+  @Post("dummy-data")
+  async dummyData(@Body() body: DummyDataRequestBody): Promise<DummyDataResult> {
+    return this.ai.generateDummyData(body);
   }
 }

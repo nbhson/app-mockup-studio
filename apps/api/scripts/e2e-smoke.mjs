@@ -264,6 +264,60 @@ async function main() {
     ),
   );
 
+  const dummy = (
+    await request("POST", "/ai/dummy-data", {
+      body: { document: generated.document, locale: "vi" },
+    })
+  ).payload;
+  check(
+    "AI dummy data returns changes",
+    Array.isArray(dummy.changes) && dummy.changes.length > 0,
+    `changes=${dummy.changes?.length}`,
+  );
+  check("AI dummy data works offline with the local generator", dummy.source === "heuristic");
+  check(
+    "AI dummy data changes reference real nodes and type-safe props",
+    dummy.changes.every((change) => {
+      if (typeof change.nodeId !== "string") return false;
+      if (!["dashboard.stats", "dashboard.table", "dashboard.chart"].includes(change.nodeType)) {
+        return true;
+      }
+      if (change.nodeType === "dashboard.stats") {
+        const items = change.props?.items;
+        const values = change.props?.values;
+        return (
+          Array.isArray(items) &&
+          Array.isArray(values) &&
+          items.length === values.length &&
+          items.every((item) => typeof item === "string")
+        );
+      }
+      if (change.nodeType === "dashboard.table") {
+        const headers = change.props?.headers;
+        const rows = change.props?.rows;
+        if (!Array.isArray(rows) || rows.length === 0) return false;
+        const widths = new Set(rows.map((row) => (Array.isArray(row) ? row.length : -1)));
+        if (widths.size !== 1) return false;
+        if (Array.isArray(headers) && rows.some((row) => row.length !== headers.length)) {
+          return false;
+        }
+        return true;
+      }
+      return typeof change.props?.title === "string";
+    }),
+  );
+
+  const dummyTarget = dummy.changes[0]?.nodeId;
+  const scopedDummy = (
+    await request("POST", "/ai/dummy-data", {
+      body: { document: generated.document, nodeId: dummyTarget, locale: "vi" },
+    })
+  ).payload;
+  check(
+    "AI dummy data honours the node scope",
+    scopedDummy.changes.length === 1 && scopedDummy.changes[0].nodeId === dummyTarget,
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -335,6 +389,7 @@ async function main() {
   check("metrics recorded AI generate", metrics.ai.generate.requests >= 1);
   check("metrics recorded AI edit", metrics.ai.edit.requests >= 1);
   check("metrics recorded AI critique", metrics.ai.critique.requests >= 1);
+  check("metrics recorded AI dummy data", metrics.ai.dummy.requests >= 2);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),

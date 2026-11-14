@@ -177,6 +177,59 @@ export function buildCritiqueUserPrompt(
   ].join("\n");
 }
 
+// --- Dummy data (plan/07 3.7) ----------------------------------------------
+
+export interface DummyDataPromptContext {
+  locale: "vi" | "en";
+  context?: string;
+  /** node id → allowed prop keys, so the model only fills real fields. */
+  targets: Array<{ nodeId: string; nodeType: string; allowedProps: string[] }>;
+}
+
+export function buildDummyDataSystemPrompt(ctx: DummyDataPromptContext): string {
+  return [
+    `You generate realistic demo content for a UI mockup built with AI Mockup Studio.`,
+    `You receive a UiDocument JSON (structured UI schema, never HTML/CSS) and a list of target nodes.`,
+    `Fill the target nodes with believable, coherent sample data that matches each component type.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Only touch nodes from the target list and only the allowed prop keys for each node.`,
+    `- Never change the node type, layout, styles or ids.`,
+    `- Keep data internally consistent (a table's rows match its headers; stats labels match values).`,
+    `- Use realistic ${ctx.locale === "vi" ? "Vietnamese" : "English"} names, currency and dates.`,
+    `- Do not use placeholder words such as "Lorem ipsum", "TODO", "Sample" or "—".`,
+    `- Amounts should be formatted strings (e.g. "₫1.240.000"), not raw numbers, unless the schema expects numbers.`,
+    `- Tables: headers is string[], rows is an array of arrays; every row must have the same length as headers.`,
+    `- Stats: items and values are parallel string arrays of equal length (3–4 items).`,
+    ``,
+    `TARGETS (JSON):`,
+    JSON.stringify(ctx.targets, null, 2),
+    ``,
+    `RESPONSE SHAPE:`,
+    `{`,
+    `  "summary": "<1–2 sentence Vietnamese summary of what data was generated>",`,
+    `  "changes": [`,
+    `    { "nodeId": "<existing node id>", "props": { "<allowed prop>": <value> } }`,
+    `  ]`,
+    `}`,
+  ].join("\n");
+}
+
+export function buildDummyDataUserPrompt(
+  document: UiDocument,
+  context?: string,
+): string {
+  return [
+    context ? `USER CONTEXT: ${context}` : `USER CONTEXT: (none — infer from the document)`,
+    ``,
+    `DOCUMENT (JSON):`,
+    JSON.stringify(document, null, 2),
+    ``,
+    `Return the dummy-data JSON now.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

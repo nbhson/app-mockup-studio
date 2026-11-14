@@ -155,6 +155,34 @@ export interface DesignCritiqueResult {
   model?: string | null;
 }
 
+// --- AI dummy data (plan/07 3.7) -------------------------------------------
+
+export type DummyDataLocale = "vi" | "en";
+
+export interface DummyDataRequestBody {
+  document: UiDocument;
+  /** Restrict generation to one node (null/omitted = whole document). */
+  nodeId?: string | null;
+  /** Extra context from the user (e.g. "dashboard bán hàng"). */
+  context?: string;
+  locale?: DummyDataLocale;
+}
+
+export interface DummyDataChange {
+  nodeId: string;
+  nodeType: string;
+  nodeLabel: string;
+  /** Props to merge into the node; the component type never changes. */
+  props: Record<string, unknown>;
+}
+
+export interface DummyDataResult {
+  changes: DummyDataChange[];
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {
