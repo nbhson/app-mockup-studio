@@ -15,6 +15,7 @@ import { cloneWithNewIds } from "./clone-nodes";
 import SchemaNode from "./SchemaNode.vue";
 import AssetsDialog from "../assets/AssetsDialog.vue";
 import ExportCodeDialog from "../export/ExportCodeDialog.vue";
+import AccessibilityDialog from "../analysis/AccessibilityDialog.vue";
 
 const doc = useDocumentStore();
 const editor = useEditorStore();
@@ -24,6 +25,7 @@ const pageEl = ref<HTMLElement | null>(null);
 const layoutTick = ref(0);
 const showAssets = ref(false);
 const showCode = ref(false);
+const showA11y = ref(false);
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -775,6 +777,14 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="Kiểm tra accessibility theo WCAG AA"
+          @click="showA11y = true"
+        >
+          ♿ Kiểm tra
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="Thư viện ảnh của dự án"
           @click="showAssets = true"
         >
@@ -883,5 +893,6 @@ onBeforeUnmount(() => {
 
     <AssetsDialog :open="showAssets" @close="showAssets = false" />
     <ExportCodeDialog :open="showCode" @close="showCode = false" />
+    <AccessibilityDialog :open="showA11y" @close="showA11y = false" />
   </div>
 </template>

@@ -108,9 +108,10 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, asset validation/raw bytes, copy assets khi duplicate,
   hidden/locked layer flags, responsive overrides, AI generate/edit, metrics.
-- `pnpm test` — 60 unit test (API 27, renderer 21, web 12) cho store selection,
+- `pnpm test` — 66 unit test (API 27, renderer 21, web 18) cho store selection,
   patch/clone, group move, layer lock, diff version, metrics, rate limit,
-  validation, responsive resolution, code export và performance guard.
+  validation, responsive resolution, accessibility analysis, code export và
+  performance guard.
 - Performance guard: test `601 nodes` trong `packages/ui-renderer` (resolve +
   export HTML) và đã đo UI thật: render 601 node ~0.9 s, selection ~16 ms.
 
@@ -130,6 +131,7 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
 - [x] Component palette: tìm kiếm, nhóm theo loại, preview mini
 - [x] Design token editor: theme sáng/tối, màu, radius, font áp dụng toàn cục
 - [x] AI generate/edit + provider abstraction (mock + OpenAI-compatible)
+- [x] Accessibility analysis (WCAG AA): contrast, alt/label, font size, tap target + auto-fix
 - [x] Responsive preview desktop/tablet/mobile + override style theo breakpoint
   (inspector & resize ghi vào `responsive.tablet/mobile`, desktop giữ nguyên)
 - [x] Version history: snapshot tự động (throttle 5 phút), xem, so sánh và khôi phục
