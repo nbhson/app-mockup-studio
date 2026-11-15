@@ -1,4 +1,0 @@
-{"ts":"2026-11-14T11:48:19.525Z","v":1,"seq":1,"type":"run.started","task":"chào"}
-{"ts":"2026-11-14T11:48:19.535Z","v":1,"seq":2,"type":"execution.claimed","attempt":1,"pid":9388,"host":"localhost"}
-{"ts":"2026-11-14T11:49:01.399Z","v":1,"seq":3,"type":"message.added","message":{"role":"assistant","content":"Hello! How can I help you today?"}}
-{"ts":"2026-11-14T11:49:01.401Z","v":1,"seq":4,"type":"finish","success":true,"summary":"Hello! How can I help you today?"}

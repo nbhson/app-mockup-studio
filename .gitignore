@@ -32,3 +32,6 @@ apps/api/prisma/*.db-journal
 
 # Misc
 *.tsbuildinfo
+
+# Tool artifacts
+.scoder/
