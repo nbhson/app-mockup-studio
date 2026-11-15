@@ -365,6 +365,45 @@ export function buildImageToUiUserPrompt(prompt?: string): string {
   ].join("\n");
 }
 
+// --- URL-to-UI (plan/07 3.2) ----------------------------------------------
+
+export interface UrlToUiPromptContext {
+  availableTypes: string[];
+  url: string;
+}
+
+export function buildUrlToUiSystemPrompt(ctx: UrlToUiPromptContext): string {
+  return [
+    `You are a UI reconstruction expert for AI Mockup Studio.`,
+    `You receive a structured snapshot of a public web page (title, headings, paragraphs, links, images and buttons) extracted from ${ctx.url}.`,
+    `Recreate the page's main layout and content as a UiDocument JSON that the studio can render and edit.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Preserve the page's hierarchy: navigation, hero/header, content sections, cards and calls to action.`,
+    `- Only use component types from the AVAILABLE TYPES list.`,
+    `- Keep text close to the snapshot; do not invent unrelated content.`,
+    `- Use layout containers/grids so the result stays editable.`,
+    `- Every node needs a unique id, a known type and sensible props/styles.`,
+    ``,
+    `AVAILABLE TYPES (JSON):`,
+    JSON.stringify(ctx.availableTypes, null, 2),
+    ``,
+    `RESPONSE SHAPE: a complete UiDocument JSON object with schemaVersion, id, pageId, name, viewport, theme and root.`,
+  ].join("\n");
+}
+
+export function buildUrlToUiUserPrompt(snapshot: unknown, prompt?: string): string {
+  return [
+    prompt ? `Extra instructions: ${prompt}` : `Extra instructions: (none — recreate the page)`,
+    ``,
+    `PAGE SNAPSHOT (JSON):`,
+    JSON.stringify(snapshot, null, 2),
+    ``,
+    `Return the UiDocument JSON now.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

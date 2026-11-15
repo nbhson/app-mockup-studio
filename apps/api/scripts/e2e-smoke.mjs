@@ -14,6 +14,7 @@
 
 import { uiDocumentSchema } from "@ai-mockup-studio/validators";
 import { knownComponentTypes } from "@ai-mockup-studio/ui-schema";
+import { createServer } from "node:http";
 
 const API_URL = (process.env.API_URL ?? "http://localhost:3000/api").replace(/\/$/, "");
 const ORIGIN = new URL(API_URL).origin;
@@ -21,6 +22,8 @@ const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 const checks = [];
+let fixtureServer = null;
+
 function check(name, condition, details = "") {
   if (!condition) throw new Error(`FAIL: ${name}${details ? ` — ${details}` : ""}`);
   checks.push(name);
@@ -84,6 +87,39 @@ function sleep(ms) {
 
 async function main() {
   console.log(`API E2E smoke — ${API_URL}`);
+
+  // Local fixture page for URL-to-UI. The API allows this exact host:port via
+  // URL_TO_UI_ALLOWED_HOSTS in CI; every other private address stays blocked.
+  fixtureServer = createServer((req, res) => {
+    if (req.url === "/redirect") {
+      res.writeHead(302, { Location: "/" });
+      res.end();
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html>
+<html>
+  <head>
+    <title>Acme Landing</title>
+    <meta name="description" content="A fixture page for URL-to-UI" />
+  </head>
+  <body>
+    <nav><a href="/features">Features</a><a href="/pricing">Pricing</a></nav>
+    <h1>Build faster</h1>
+    <p>Ship your next idea with confidence.</p>
+    <h2>Features</h2>
+    <p>Everything you need to launch.</p>
+    <h2>Pricing</h2>
+    <p>Simple plans for every team.</p>
+    <img src="/hero.png" alt="hero" />
+    <button>Get started</button>
+  </body>
+</html>`);
+  });
+  await new Promise((resolve, reject) => {
+    fixtureServer.once("error", reject);
+    fixtureServer.listen(3199, "127.0.0.1", resolve);
+  });
 
   // --- Readiness -----------------------------------------------------------
   let health = null;
@@ -426,6 +462,59 @@ async function main() {
     ) === true,
   );
 
+  const urlToUi = (
+    await request("POST", "/ai/url-to-ui", {
+      body: { url: "http://127.0.0.1:3199/" },
+    })
+  ).payload;
+  check(
+    "AI url-to-ui works offline with the local analyzer",
+    urlToUi.source === "heuristic",
+  );
+  check(
+    "AI url-to-ui returns a valid document",
+    uiDocumentSchema.safeParse(urlToUi.document).success,
+  );
+  check(
+    "AI url-to-ui extracts the page title",
+    urlToUi.site?.title === "Acme Landing" &&
+      urlToUi.document?.name?.includes("Acme Landing"),
+    JSON.stringify({ site: urlToUi.site, name: urlToUi.document?.name }),
+  );
+  check(
+    "AI url-to-ui builds navigation and sections",
+    urlToUi.document?.root?.children?.some((node) => node.type === "layout.navbar") ===
+      true && JSON.stringify(urlToUi.document).includes('"type":"formal.card"'),
+  );
+  const redirected = (
+    await request("POST", "/ai/url-to-ui", {
+      body: { url: "http://127.0.0.1:3199/redirect" },
+    })
+  ).payload;
+  check(
+    "AI url-to-ui follows safe redirects",
+    redirected.url === "http://127.0.0.1:3199/",
+    redirected.url,
+  );
+  const privateBlocked = await request("POST", "/ai/url-to-ui", {
+    body: { url: "http://127.0.0.1:3100/api/health" },
+    status: 400,
+  });
+  check(
+    "AI url-to-ui blocks private URLs",
+    /nội bộ|chặn/.test(String(privateBlocked.payload?.message ?? "")),
+    String(privateBlocked.payload?.message ?? ""),
+  );
+  const schemeBlocked = await request("POST", "/ai/url-to-ui", {
+    body: { url: "file:///etc/passwd" },
+    status: 400,
+  });
+  check(
+    "AI url-to-ui blocks non-http URLs",
+    /http\/https/.test(String(schemeBlocked.payload?.message ?? "")),
+    String(schemeBlocked.payload?.message ?? ""),
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -501,6 +590,7 @@ async function main() {
   check("metrics recorded AI responsive", metrics.ai.responsive.requests >= 2);
   check("metrics recorded AI recommend", metrics.ai.recommend.requests >= 1);
   check("metrics recorded AI image-to-ui", metrics.ai.image.requests >= 1);
+  check("metrics recorded AI url-to-ui", metrics.ai.url.requests >= 2);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),
@@ -520,7 +610,11 @@ async function main() {
   console.log(`\nRESULT: PASS — ${checks.length} checks`);
 }
 
-main().catch((error) => {
-  console.error(`\nRESULT: FAIL — ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(`\nRESULT: FAIL — ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    fixtureServer?.close();
+  });

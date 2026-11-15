@@ -272,6 +272,11 @@ export const imageToUiRequestSchema = z.object({
   viewport: z.enum(["desktop", "tablet", "mobile"]).optional(),
 });
 
+export const urlToUiRequestSchema = z.object({
+  url: z.string().trim().url().max(2000),
+  prompt: z.string().trim().max(1000).optional(),
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

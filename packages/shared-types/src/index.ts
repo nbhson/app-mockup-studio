@@ -263,6 +263,30 @@ export interface ImageToUiResult {
   };
 }
 
+// --- AI URL-to-UI (plan/07 3.2) -------------------------------------------
+
+export interface UrlToUiRequestBody {
+  url: string;
+  /** Optional description of the page or which parts to keep. */
+  prompt?: string;
+}
+
+export interface UrlToUiSiteInfo {
+  title: string;
+  description?: string;
+  image?: string;
+}
+
+export interface UrlToUiResult {
+  document: UiDocument;
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
+  /** Final URL after safe redirects. */
+  url: string;
+  site: UrlToUiSiteInfo;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

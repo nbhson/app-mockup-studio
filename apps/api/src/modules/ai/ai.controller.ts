@@ -21,6 +21,8 @@ import type {
   ComponentRecommendResult,
   ImageToUiRequestBody,
   ImageToUiResult,
+  UrlToUiRequestBody,
+  UrlToUiResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -80,5 +82,11 @@ export class AiController {
   @Post("image-to-ui")
   async imageToUi(@Body() body: ImageToUiRequestBody): Promise<ImageToUiResult> {
     return this.ai.imageToUi(body);
+  }
+
+  /** URL-to-UI: safely fetch a public page and recreate its main layout. */
+  @Post("url-to-ui")
+  async urlToUi(@Body() body: UrlToUiRequestBody): Promise<UrlToUiResult> {
+    return this.ai.urlToUi(body);
   }
 }

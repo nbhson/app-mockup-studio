@@ -55,6 +55,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_mockup_studio
       PORT: 3000
       AI_RATE_LIMIT: 100
+      URL_TO_UI_ALLOWED_HOSTS: 127.0.0.1:3199
     steps:
       - uses: actions/checkout@v4
 

@@ -18,6 +18,8 @@ import type {
   ComponentRecommendation,
   ImageToUiRequestBody,
   ImageToUiResult,
+  UrlToUiRequestBody,
+  UrlToUiResult,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -33,6 +35,7 @@ import {
   componentRecommendRequestSchema,
   componentRecommendResponseSchema,
   imageToUiRequestSchema,
+  urlToUiRequestSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
@@ -62,6 +65,8 @@ import {
   buildRecommendUserPrompt,
   buildImageToUiSystemPrompt,
   buildImageToUiUserPrompt,
+  buildUrlToUiSystemPrompt,
+  buildUrlToUiUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
@@ -78,6 +83,11 @@ import {
 } from "./responsive";
 import { heuristicRecommendations } from "./recommend";
 import { heuristicImageToUi, readImageSize } from "./image-to-ui";
+import {
+  fetchPublicPage,
+  heuristicUrlToUi,
+  parseHtmlSnapshot,
+} from "./url-to-ui";
 import { validateAssetData } from "../assets/asset-validation";
 
 /** Screenshots are often larger than ordinary assets; keep a safe JSON cap. */
@@ -788,6 +798,101 @@ export class AiService {
       summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ từ ảnh.`,
       source: "heuristic",
       image,
+    };
+  }
+
+  /**
+   * URL-to-UI (plan/07 3.2): fetch a public HTML page safely and recreate its
+   * main layout. Works with static HTML; JavaScript-rendered content is
+   * approximated from the server-rendered markup.
+   */
+  async urlToUi(body: UrlToUiRequestBody): Promise<UrlToUiResult> {
+    const started = performance.now();
+    const parsed = urlToUiRequestSchema.parse(body);
+    const page = await fetchPublicPage(parsed.url);
+    const snapshot = parseHtmlSnapshot(page.html, page.url);
+    const site = {
+      title: snapshot.title || new URL(page.url).hostname,
+      description: snapshot.description,
+      image: snapshot.images[0],
+    };
+    const buildFallback = () => heuristicUrlToUi(snapshot, page.url, parsed.prompt);
+
+    if (!this.useRealLLM) {
+      const document = buildFallback();
+      this.metrics.recordAi("url", "mock", performance.now() - started);
+      return {
+        document,
+        summary: `Đã dựng lại bố cục chính của "${site.title}" từ HTML tĩnh bằng phân tích cục bộ. Trang dùng JavaScript động có thể chưa hiển thị đầy đủ.`,
+        source: "heuristic",
+        url: page.url,
+        site,
+      };
+    }
+
+    const system = buildUrlToUiSystemPrompt({
+      availableTypes: knownComponentTypes,
+      url: page.url,
+    });
+    const user = buildUrlToUiUserPrompt(snapshot, parsed.prompt);
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 4000, temperature: 0.3 },
+        );
+        usage.promptTokens =
+          (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const document = uiDocumentSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+        ensureIdsUnique(document);
+        document.viewport = { width: 1440, height: 900 };
+
+        this.metrics.recordAi(
+          "url",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          document,
+          summary: `Đã dựng lại bố cục chính của "${site.title}" bằng AI từ nội dung HTML. Tiếp tục chỉnh sửa trực tiếp trên canvas.`,
+          source: "ai",
+          model: result.model,
+          url: page.url,
+          site,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "url",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    return {
+      document: buildFallback(),
+      summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ từ HTML.`,
+      source: "heuristic",
+      url: page.url,
+      site,
     };
   }
 
