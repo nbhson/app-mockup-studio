@@ -238,6 +238,31 @@ export interface ComponentRecommendResult {
   model?: string | null;
 }
 
+// --- AI image-to-UI (plan/07 3.1) -----------------------------------------
+
+export type ImageToUiMimeType = "image/png" | "image/jpeg" | "image/webp";
+
+export interface ImageToUiRequestBody {
+  /** Raw base64 or a data: URL. Max 5 MB. */
+  imageBase64: string;
+  mimeType: ImageToUiMimeType;
+  /** Optional description of the screen to guide the reconstruction. */
+  prompt?: string;
+  viewport?: "desktop" | "tablet" | "mobile";
+}
+
+export interface ImageToUiResult {
+  document: UiDocument;
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
+  image: {
+    width: number;
+    height: number;
+    mimeType: ImageToUiMimeType;
+  };
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

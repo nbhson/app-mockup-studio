@@ -58,6 +58,29 @@ export class OpenAIProviderService implements AIProviderService {
     const url = `${this.config.baseURL}/chat/completions`;
     const responseFormat = opts?.jsonMode ? { type: "json_object" } as const : undefined;
 
+    // Vision models expect the last user message as content parts. Text-only
+    // calls keep the plain string shape so every OpenAI-compatible endpoint
+    // continues to work unchanged.
+    const payloadMessages = messages.map((message, index) => {
+      if (
+        index !== messages.length - 1 ||
+        message.role !== "user" ||
+        !opts?.images?.length
+      ) {
+        return message;
+      }
+      return {
+        role: message.role,
+        content: [
+          { type: "text", text: message.content },
+          ...opts.images.map((imageUrl) => ({
+            type: "image_url",
+            image_url: { url: imageUrl },
+          })),
+        ],
+      };
+    });
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -66,7 +89,7 @@ export class OpenAIProviderService implements AIProviderService {
       },
       body: JSON.stringify({
         model: this.config.models[0].id,
-        messages,
+        messages: payloadMessages,
         temperature: opts?.temperature ?? 0.2,
         max_tokens: opts?.maxTokens ?? 4000,
         response_format: responseFormat,

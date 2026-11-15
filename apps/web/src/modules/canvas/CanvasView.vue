@@ -19,6 +19,7 @@ import AccessibilityDialog from "../analysis/AccessibilityDialog.vue";
 import ConsistencyDialog from "../analysis/ConsistencyDialog.vue";
 import DesignCritiqueDialog from "../analysis/DesignCritiqueDialog.vue";
 import ResponsiveOptimizeDialog from "../analysis/ResponsiveOptimizeDialog.vue";
+import ImageToUiDialog from "../analysis/ImageToUiDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -34,6 +35,7 @@ const showConsistency = ref(false);
 const showCritique = ref(false);
 const showDummyData = ref(false);
 const showResponsive = ref(false);
+const showImageToUi = ref(false);
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -792,6 +794,13 @@ onBeforeUnmount(() => {
         </button>
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          title="Dựng mockup từ ảnh chụp màn hình"
+          @click="showImageToUi = true"
+        >
+          🖼 Ảnh → UI
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Đề xuất override tablet/mobile an toàn"
           @click="showResponsive = true"
@@ -938,5 +947,6 @@ onBeforeUnmount(() => {
     <DesignCritiqueDialog :open="showCritique" @close="showCritique = false" />
     <DummyDataDialog :open="showDummyData" @close="showDummyData = false" />
     <ResponsiveOptimizeDialog :open="showResponsive" @close="showResponsive = false" />
+    <ImageToUiDialog :open="showImageToUi" @close="showImageToUi = false" />
   </div>
 </template>

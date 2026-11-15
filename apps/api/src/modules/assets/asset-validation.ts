@@ -30,7 +30,11 @@ export function matchesImageSignature(data: Buffer, mimeType: string): boolean {
  * Decodes a base64 body (optionally prefixed with a `data:` URL) and enforces
  * size + magic-byte rules. Throws a 400 with a user-facing message.
  */
-export function validateAssetData(dataBase64: string, mimeType: string): Buffer {
+export function validateAssetData(
+  dataBase64: string,
+  mimeType: string,
+  maxBytes = MAX_ASSET_BYTES,
+): Buffer {
   // Accept (and strip) a data: URL prefix so clients can pass FileReader
   // output directly without extra parsing.
   const base64 = dataBase64.replace(/^data:[^;]+;base64,/, "");
@@ -39,9 +43,9 @@ export function validateAssetData(dataBase64: string, mimeType: string): Buffer 
   if (data.length === 0) {
     throw new BadRequestException("Tệp rỗng hoặc không phải base64 hợp lệ");
   }
-  if (data.length > MAX_ASSET_BYTES) {
+  if (data.length > maxBytes) {
     throw new BadRequestException(
-      `Tệp vượt quá giới hạn ${Math.round(MAX_ASSET_BYTES / 1024 / 1024)} MB`,
+      `Tệp vượt quá giới hạn ${Math.round(maxBytes / 1024 / 1024)} MB`,
     );
   }
   if (!matchesImageSignature(data, mimeType)) {

@@ -397,6 +397,35 @@ async function main() {
     recommend.suggestions.map((suggestion) => suggestion.type).join(","),
   );
 
+  const imageToUi = (
+    await request("POST", "/ai/image-to-ui", {
+      body: {
+        imageBase64: PNG_BASE64,
+        mimeType: "image/png",
+        prompt: "Dashboard doanh thu",
+      },
+    })
+  ).payload;
+  check(
+    "AI image-to-ui works offline with the local analyzer",
+    imageToUi.source === "heuristic",
+  );
+  check(
+    "AI image-to-ui returns a valid document",
+    uiDocumentSchema.safeParse(imageToUi.document).success,
+  );
+  check(
+    "AI image-to-ui reads the image dimensions",
+    imageToUi.image?.width === 1 && imageToUi.image?.height === 1,
+    JSON.stringify(imageToUi.image),
+  );
+  check(
+    "AI image-to-ui builds a dashboard layout",
+    imageToUi.document?.root?.children?.some(
+      (node) => node.type === "layout.sidebar",
+    ) === true,
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -471,6 +500,7 @@ async function main() {
   check("metrics recorded AI dummy data", metrics.ai.dummy.requests >= 2);
   check("metrics recorded AI responsive", metrics.ai.responsive.requests >= 2);
   check("metrics recorded AI recommend", metrics.ai.recommend.requests >= 1);
+  check("metrics recorded AI image-to-ui", metrics.ai.image.requests >= 1);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),

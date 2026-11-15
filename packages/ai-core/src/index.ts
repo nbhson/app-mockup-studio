@@ -48,6 +48,8 @@ export interface AiChatOptions {
   maxTokens?: number;
   /** When true, the provider should return strict JSON (structured output). */
   jsonMode?: boolean;
+  /** Optional image inputs (data URLs) for vision-capable models. */
+  images?: string[];
   signal?: AbortSignal;
 }
 

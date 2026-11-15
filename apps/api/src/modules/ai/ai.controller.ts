@@ -19,6 +19,8 @@ import type {
   ResponsiveOptimizeResult,
   ComponentRecommendRequestBody,
   ComponentRecommendResult,
+  ImageToUiRequestBody,
+  ImageToUiResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -72,5 +74,11 @@ export class AiController {
     @Body() body: ComponentRecommendRequestBody,
   ): Promise<ComponentRecommendResult> {
     return this.ai.recommendComponents(body);
+  }
+
+  /** Image-to-UI: recreate a screenshot as an editable document. */
+  @Post("image-to-ui")
+  async imageToUi(@Body() body: ImageToUiRequestBody): Promise<ImageToUiResult> {
+    return this.ai.imageToUi(body);
   }
 }

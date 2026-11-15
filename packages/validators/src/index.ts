@@ -265,6 +265,13 @@ export const componentRecommendResponseSchema = z.object({
     .max(12),
 });
 
+export const imageToUiRequestSchema = z.object({
+  imageBase64: z.string().min(32).max(8_000_000),
+  mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  prompt: z.string().trim().max(1000).optional(),
+  viewport: z.enum(["desktop", "tablet", "mobile"]).optional(),
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

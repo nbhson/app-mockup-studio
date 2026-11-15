@@ -16,6 +16,8 @@ import type {
   ComponentRecommendRequestBody,
   ComponentRecommendResult,
   ComponentRecommendation,
+  ImageToUiRequestBody,
+  ImageToUiResult,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -30,6 +32,7 @@ import {
   responsiveResponseSchema,
   componentRecommendRequestSchema,
   componentRecommendResponseSchema,
+  imageToUiRequestSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
@@ -57,6 +60,8 @@ import {
   buildResponsiveUserPrompt,
   buildRecommendSystemPrompt,
   buildRecommendUserPrompt,
+  buildImageToUiSystemPrompt,
+  buildImageToUiUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
@@ -72,6 +77,11 @@ import {
   sanitizeResponsiveStyles,
 } from "./responsive";
 import { heuristicRecommendations } from "./recommend";
+import { heuristicImageToUi, readImageSize } from "./image-to-ui";
+import { validateAssetData } from "../assets/asset-validation";
+
+/** Screenshots are often larger than ordinary assets; keep a safe JSON cap. */
+const MAX_AI_IMAGE_BYTES = 5 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // AI Orchestrator (plan/04, plan/09 8.3 AI reliability).
@@ -665,6 +675,119 @@ export class AiService {
     return {
       ...fallback,
       summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+    };
+  }
+
+  /**
+   * Image-to-UI (plan/07 3.1): recreate a screenshot as an editable document.
+   * Uses the vision model when configured and always falls back to a local
+   * heuristic so the feature works offline.
+   */
+  async imageToUi(body: ImageToUiRequestBody): Promise<ImageToUiResult> {
+    const started = performance.now();
+    const parsed = imageToUiRequestSchema.parse(body);
+    const data = validateAssetData(
+      parsed.imageBase64,
+      parsed.mimeType,
+      MAX_AI_IMAGE_BYTES,
+    );
+    const size = readImageSize(data, parsed.mimeType) ?? { width: 1440, height: 900 };
+    const image = {
+      width: size.width,
+      height: size.height,
+      mimeType: parsed.mimeType,
+    };
+    const buildFallback = () =>
+      heuristicImageToUi({
+        width: size.width,
+        height: size.height,
+        mimeType: parsed.mimeType,
+        prompt: parsed.prompt,
+        viewport: parsed.viewport,
+      });
+
+    if (!this.useRealLLM) {
+      const document = buildFallback();
+      this.metrics.recordAi("image", "mock", performance.now() - started);
+      return {
+        document,
+        summary: `Đã dựng mockup từ ảnh ${size.width}×${size.height} bằng phân tích cục bộ. Cài OPENAI_API_KEY để dùng vision model và bám sát ảnh gốc hơn.`,
+        source: "heuristic",
+        image,
+      };
+    }
+
+    const ratio = size.height > 0 ? size.width / size.height : 1.6;
+    const viewport =
+      parsed.viewport ??
+      (ratio >= 1.35 ? "desktop" : ratio <= 0.85 ? "mobile" : "tablet");
+    const system = buildImageToUiSystemPrompt({
+      availableTypes: knownComponentTypes,
+      width: size.width,
+      height: size.height,
+      viewport,
+    });
+    const user = buildImageToUiUserPrompt(parsed.prompt);
+    const dataUrl = `data:${parsed.mimeType};base64,${parsed.imageBase64.replace(
+      /^data:[^;]+;base64,/,
+      "",
+    )}`;
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 4000, images: [dataUrl] },
+        );
+        usage.promptTokens =
+          (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const document = uiDocumentSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+        ensureIdsUnique(document);
+        document.viewport = { width: size.width, height: size.height };
+
+        this.metrics.recordAi(
+          "image",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          document,
+          summary: `Đã dựng lại giao diện từ ảnh ${size.width}×${size.height} bằng vision model. Tiếp tục chỉnh sửa trực tiếp trên canvas.`,
+          source: "ai",
+          model: result.model,
+          image,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "image",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    return {
+      document: buildFallback(),
+      summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ từ ảnh.`,
+      source: "heuristic",
+      image,
     };
   }
 

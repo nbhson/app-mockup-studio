@@ -327,6 +327,44 @@ export function buildRecommendUserPrompt(document: UiDocument, prompt?: string):
   ].join("\n");
 }
 
+// --- Image-to-UI (plan/07 3.1) --------------------------------------------
+
+export interface ImageToUiPromptContext {
+  availableTypes: string[];
+  width: number;
+  height: number;
+  viewport: "desktop" | "tablet" | "mobile";
+}
+
+export function buildImageToUiSystemPrompt(ctx: ImageToUiPromptContext): string {
+  return [
+    `You are a UI reconstruction expert for AI Mockup Studio.`,
+    `You receive a screenshot of an existing interface. Recreate its layout and content as a UiDocument JSON that the studio can render and edit.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Follow the screenshot's visual hierarchy: navigation, header, content blocks, sidebars, tables and forms.`,
+    `- Only use component types from the AVAILABLE TYPES list.`,
+    `- Keep the structure editable: use layout containers/grids instead of one giant node.`,
+    `- Copy visible text as closely as possible; do not invent unrelated content.`,
+    `- The document viewport is ${ctx.width}×${ctx.height} (${ctx.viewport}).`,
+    `- Every node needs a unique id, a known type and sensible props/styles.`,
+    ``,
+    `AVAILABLE TYPES (JSON):`,
+    JSON.stringify(ctx.availableTypes, null, 2),
+    ``,
+    `RESPONSE SHAPE: a complete UiDocument JSON object with schemaVersion, id, pageId, name, viewport, theme and root.`,
+  ].join("\n");
+}
+
+export function buildImageToUiUserPrompt(prompt?: string): string {
+  return [
+    prompt ? `Extra instructions: ${prompt}` : `Extra instructions: (none — match the screenshot)`,
+    ``,
+    `Recreate this screenshot as an editable UiDocument. Return the JSON now.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {
