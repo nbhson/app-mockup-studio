@@ -104,18 +104,18 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   case against API đang chạy; kiểm tra schema, id trùng, viewport, markup lạ,
   intent coverage, fallback rate và lưu report JSON nếu đặt `EVAL_OUT`.
   Với mock provider, kết quả là baseline cấu trúc; điền key để đo LLM thật.
-- `pnpm --filter @ai-mockup-studio/api e2e:api` — 68 check HTTP end-to-end:
+- `pnpm --filter @ai-mockup-studio/api e2e:api` — 73 check HTTP end-to-end:
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, asset validation/raw bytes, copy assets khi duplicate,
   hidden/locked layer flags, responsive overrides, AI generate/edit/critique/
   dummy-data/responsive/recommend-components/image-to-ui/url-to-ui (SSRF +
-  redirect), metrics.
-- `pnpm test` — 131 unit test (API 83, renderer 21, web 27) cho store selection,
+  redirect)/design-reference, metrics.
+- `pnpm test` — 140 unit test (API 92, renderer 21, web 27) cho store selection,
   patch/clone, group move, layer lock, diff version, metrics, rate limit,
   validation, responsive resolution & optimization, accessibility &
   design-consistency analysis, heuristic design critique, dummy-data generation,
   component recommendation, image-to-UI fallback, URL parsing & SSRF guards,
-  code export và performance guard.
+  palette extraction & theme mapping, code export và performance guard.
 - Performance guard: test `601 nodes` trong `packages/ui-renderer` (resolve +
   export HTML) và đã đo UI thật: render 601 node ~0.9 s, selection ~16 ms.
 
@@ -149,6 +149,9 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   dùng vision model khi có key, fallback phân tích cục bộ khi offline
 - [x] AI URL-to-UI: nhập URL công khai → dựng lại bố cục chính; chặn SSRF
   (localhost/private IP), giới hạn dung lượng/thời gian, xử lý redirect an toàn
+- [x] AI design reference: trích bảng màu chủ đạo từ ảnh mẫu, ánh xạ thành theme
+  token (mode/primary/background/foreground/muted/border/radius/font), chỉnh tay
+  trước khi áp dụng; PNG giải mã phía server, JPEG/WebP dùng canvas phía client
 - [x] Responsive preview desktop/tablet/mobile + override style theo breakpoint
   (inspector & resize ghi vào `responsive.tablet/mobile`, desktop giữ nguyên)
 - [x] Version history: snapshot tự động (throttle 5 phút), xem, so sánh và khôi phục
@@ -163,7 +166,7 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   (`REDIS_URL`, fallback an toàn về in-memory khi Redis mất)
 - [x] AI evaluation: test set 8 prompt + 3 edit case, metric cấu trúc/intent/fallback
 - [x] Performance: 601 node render/selection ổn định, guard test trong CI
-- [x] CI workflow (build + typecheck + test + API smoke 68 check + AI eval với Postgres)
+- [x] CI workflow (build + typecheck + test + API smoke 73 check + AI eval với Postgres)
 - [x] Runbook deploy production (env, migrate, systemd, Nginx, health, rollback)
 - [ ] Deploy/rollback thực tế lên môi trường production (cần hạ tầng/host thật)
 

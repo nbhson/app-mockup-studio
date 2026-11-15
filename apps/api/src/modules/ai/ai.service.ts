@@ -20,6 +20,8 @@ import type {
   ImageToUiResult,
   UrlToUiRequestBody,
   UrlToUiResult,
+  DesignReferenceRequestBody,
+  DesignReferenceResult,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -36,6 +38,8 @@ import {
   componentRecommendResponseSchema,
   imageToUiRequestSchema,
   urlToUiRequestSchema,
+  designReferenceRequestSchema,
+  designReferenceResponseSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
@@ -67,6 +71,8 @@ import {
   buildImageToUiUserPrompt,
   buildUrlToUiSystemPrompt,
   buildUrlToUiUserPrompt,
+  buildDesignReferenceSystemPrompt,
+  buildDesignReferenceUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
@@ -88,6 +94,14 @@ import {
   heuristicUrlToUi,
   parseHtmlSnapshot,
 } from "./url-to-ui";
+import {
+  DEFAULT_PALETTE,
+  extractPngPalette,
+  normalizeHex,
+  paletteFromHexList,
+  themeFromPalette,
+  withThemeRoles,
+} from "./design-reference";
 import { validateAssetData } from "../assets/asset-validation";
 
 /** Screenshots are often larger than ordinary assets; keep a safe JSON cap. */
@@ -893,6 +907,113 @@ export class AiService {
       source: "heuristic",
       url: page.url,
       site,
+    };
+  }
+
+  /**
+   * Design reference (plan/07 3.3): extract a palette from a reference image
+   * and map it to theme tokens. PNGs are decoded locally; JPEG/WebP can use a
+   * palette extracted by the web canvas. A vision model can refine the result.
+   */
+  async designReference(
+    body: DesignReferenceRequestBody,
+  ): Promise<DesignReferenceResult> {
+    const started = performance.now();
+    const parsed = designReferenceRequestSchema.parse(body);
+    const data = validateAssetData(
+      parsed.imageBase64,
+      parsed.mimeType,
+      MAX_AI_IMAGE_BYTES,
+    );
+
+    const clientPalette = parsed.palette ? paletteFromHexList(parsed.palette) : [];
+    const localColors =
+      clientPalette.length > 0
+        ? clientPalette
+        : (extractPngPalette(data) ?? DEFAULT_PALETTE);
+    const localTheme = themeFromPalette(localColors);
+    const localResult = (): DesignReferenceResult => ({
+      palette: withThemeRoles(localColors, localTheme),
+      theme: localTheme,
+      summary:
+        "Đã trích bảng màu chủ đạo từ ảnh mẫu và ánh xạ thành design tokens. Bạn có thể chỉnh từng màu trước khi áp dụng.",
+      source: "heuristic",
+    });
+
+    if (!this.useRealLLM) {
+      this.metrics.recordAi("design", "mock", performance.now() - started);
+      return localResult();
+    }
+
+    const dataUrl = `data:${parsed.mimeType};base64,${parsed.imageBase64.replace(
+      /^data:[^;]+;base64,/,
+      "",
+    )}`;
+    const system = buildDesignReferenceSystemPrompt();
+    const user = buildDesignReferenceUserPrompt();
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 1200, images: [dataUrl] },
+        );
+        usage.promptTokens =
+          (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const response = designReferenceResponseSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+
+        const colors = response.colors.map((color) => ({
+          hex: normalizeHex(color.hex) ?? "#000000",
+          share: 1 / response.colors.length,
+          role: color.role,
+        }));
+        const theme = themeFromPalette(colors, {
+          fontFamily: response.fontFamily,
+          radius: response.radius,
+        });
+
+        this.metrics.recordAi(
+          "design",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          palette: withThemeRoles(colors, theme),
+          theme,
+          summary: response.summary,
+          source: "ai",
+          model: result.model,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "design",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    const fallback = localResult();
+    return {
+      ...fallback,
+      summary: `⚠️ AI không trả về bảng màu hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
     };
   }
 

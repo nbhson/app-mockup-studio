@@ -21,6 +21,7 @@ import DesignCritiqueDialog from "../analysis/DesignCritiqueDialog.vue";
 import ResponsiveOptimizeDialog from "../analysis/ResponsiveOptimizeDialog.vue";
 import ImageToUiDialog from "../analysis/ImageToUiDialog.vue";
 import UrlToUiDialog from "../analysis/UrlToUiDialog.vue";
+import DesignReferenceDialog from "../analysis/DesignReferenceDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -38,6 +39,7 @@ const showDummyData = ref(false);
 const showResponsive = ref(false);
 const showImageToUi = ref(false);
 const showUrlToUi = ref(false);
+const showDesignRef = ref(false);
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -811,6 +813,14 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="Trích bảng màu và theme từ ảnh mẫu"
+          @click="showDesignRef = true"
+        >
+          🎨 Design ref
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="Đề xuất override tablet/mobile an toàn"
           @click="showResponsive = true"
         >
@@ -958,5 +968,6 @@ onBeforeUnmount(() => {
     <ResponsiveOptimizeDialog :open="showResponsive" @close="showResponsive = false" />
     <ImageToUiDialog :open="showImageToUi" @close="showImageToUi = false" />
     <UrlToUiDialog :open="showUrlToUi" @close="showUrlToUi = false" />
+    <DesignReferenceDialog :open="showDesignRef" @close="showDesignRef = false" />
   </div>
 </template>

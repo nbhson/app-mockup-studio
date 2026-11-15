@@ -23,6 +23,8 @@ import type {
   ImageToUiResult,
   UrlToUiRequestBody,
   UrlToUiResult,
+  DesignReferenceRequestBody,
+  DesignReferenceResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -88,5 +90,13 @@ export class AiController {
   @Post("url-to-ui")
   async urlToUi(@Body() body: UrlToUiRequestBody): Promise<UrlToUiResult> {
     return this.ai.urlToUi(body);
+  }
+
+  /** Design reference: extract palette/theme tokens from a reference image. */
+  @Post("design-reference")
+  async designReference(
+    @Body() body: DesignReferenceRequestBody,
+  ): Promise<DesignReferenceResult> {
+    return this.ai.designReference(body);
   }
 }

@@ -17,7 +17,8 @@ export type AiKind =
   | "responsive"
   | "recommend"
   | "image"
-  | "url";
+  | "url"
+  | "design";
 export type AiOutcome = "ok" | "mock" | "fallback" | "error";
 export type AiUsage = {
   promptTokens?: number;
@@ -110,6 +111,7 @@ export class MetricsService {
     recommend: emptyAiMetric(),
     image: emptyAiMetric(),
     url: emptyAiMetric(),
+    design: emptyAiMetric(),
   };
 
   recordRequest(method: string, route: string, status: number, durationMs: number): void {
@@ -186,7 +188,8 @@ export class MetricsService {
       this.ai.responsive.requests +
       this.ai.recommend.requests +
       this.ai.image.requests +
-      this.ai.url.requests;
+      this.ai.url.requests +
+      this.ai.design.requests;
     const aiFallbacks =
       this.ai.generate.byOutcome.fallback +
       this.ai.edit.byOutcome.fallback +
@@ -195,7 +198,8 @@ export class MetricsService {
       this.ai.responsive.byOutcome.fallback +
       this.ai.recommend.byOutcome.fallback +
       this.ai.image.byOutcome.fallback +
-      this.ai.url.byOutcome.fallback;
+      this.ai.url.byOutcome.fallback +
+      this.ai.design.byOutcome.fallback;
     if (aiRequests >= 5) {
       const fallbackRate = aiFallbacks / aiRequests;
       const maxFallbackRate = envNumber("METRICS_AI_FALLBACK_THRESHOLD", 0.2);
@@ -243,6 +247,7 @@ export class MetricsService {
         recommend: { ...this.ai.recommend, totalMs: round(this.ai.recommend.totalMs) },
         image: { ...this.ai.image, totalMs: round(this.ai.image.totalMs) },
         url: { ...this.ai.url, totalMs: round(this.ai.url.totalMs) },
+        design: { ...this.ai.design, totalMs: round(this.ai.design.totalMs) },
       },
       alerts,
     };

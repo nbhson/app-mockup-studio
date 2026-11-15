@@ -404,6 +404,34 @@ export function buildUrlToUiUserPrompt(snapshot: unknown, prompt?: string): stri
   ].join("\n");
 }
 
+// --- Design reference (plan/07 3.3) ---------------------------------------
+
+export function buildDesignReferenceSystemPrompt(): string {
+  return [
+    `You are a design systems expert for AI Mockup Studio.`,
+    `You receive a design reference image (screenshot or moodboard). Extract its visual style.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Return 2–12 dominant colors as 6-digit hex strings.`,
+    `- Assign roles only when clear: "background" (page base), "foreground" (main text), "primary" (brand/accent).`,
+    `- Estimate the font family and corner radius if they are visually obvious; otherwise omit them.`,
+    `- The summary is 1–2 Vietnamese sentences describing the style.`,
+    ``,
+    `RESPONSE SHAPE:`,
+    `{`,
+    `  "summary": "<style summary>",`,
+    `  "colors": [{ "hex": "#2563EB", "role": "primary" }],`,
+    `  "fontFamily": "Inter, sans-serif",`,
+    `  "radius": 8`,
+    `}`,
+  ].join("\n");
+}
+
+export function buildDesignReferenceUserPrompt(): string {
+  return `Extract the design tokens from this reference image. Return the JSON now.`;
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

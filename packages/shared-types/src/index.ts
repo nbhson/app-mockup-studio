@@ -1,4 +1,9 @@
-import type { UiDocument, UiPatch, ViewportMode } from "@ai-mockup-studio/ui-schema";
+import type {
+  Theme,
+  UiDocument,
+  UiPatch,
+  ViewportMode,
+} from "@ai-mockup-studio/ui-schema";
 
 // ---------------------------------------------------------------------------
 // API contract types shared between apps/web and apps/api.
@@ -285,6 +290,31 @@ export interface UrlToUiResult {
   /** Final URL after safe redirects. */
   url: string;
   site: UrlToUiSiteInfo;
+}
+
+// --- AI design reference (plan/07 3.3) ------------------------------------
+
+export interface DesignReferenceRequestBody {
+  /** Raw base64 or a data: URL. Max 5 MB. */
+  imageBase64: string;
+  mimeType: ImageToUiMimeType;
+  /** Optional palette extracted client-side (canvas) for formats the server cannot decode. */
+  palette?: string[];
+}
+
+export interface DesignReferenceColor {
+  hex: string;
+  /** Approximate share of sampled pixels (0–1). */
+  share: number;
+  role?: "background" | "foreground" | "primary";
+}
+
+export interface DesignReferenceResult {
+  palette: DesignReferenceColor[];
+  theme: Theme;
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
 }
 
 // --- Health -----------------------------------------------------------------

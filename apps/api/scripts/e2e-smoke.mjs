@@ -515,6 +515,44 @@ async function main() {
     String(schemeBlocked.payload?.message ?? ""),
   );
 
+  const designRef = (
+    await request("POST", "/ai/design-reference", {
+      body: {
+        imageBase64: PNG_BASE64,
+        mimeType: "image/png",
+        palette: ["#FFFFFF", "#2563EB", "#0F172A"],
+      },
+    })
+  ).payload;
+  check(
+    "AI design-reference works offline with the local analyzer",
+    designRef.source === "heuristic",
+  );
+  check(
+    "AI design-reference returns a palette and theme tokens",
+    Array.isArray(designRef.palette) &&
+      designRef.palette.length > 0 &&
+      designRef.palette.every((color) => /^#[0-9A-F]{6}$/i.test(color.hex)) &&
+      /^#[0-9A-F]{6}$/i.test(designRef.theme?.primary ?? "") &&
+      /^#[0-9A-F]{6}$/i.test(designRef.theme?.background ?? "") &&
+      /^#[0-9A-F]{6}$/i.test(designRef.theme?.foreground ?? "") &&
+      typeof designRef.theme?.radius === "number",
+  );
+  check(
+    "AI design-reference honours the client-extracted palette",
+    designRef.theme?.background === "#FFFFFF" &&
+      designRef.theme?.primary === "#2563EB" &&
+      designRef.theme?.foreground === "#0F172A",
+    JSON.stringify(designRef.theme),
+  );
+  check(
+    "AI design-reference assigns semantic roles",
+    designRef.palette.some((color) => color.role === "background") &&
+      designRef.palette.some((color) => color.role === "foreground") &&
+      designRef.palette.some((color) => color.role === "primary"),
+    JSON.stringify(designRef.palette),
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -591,6 +629,7 @@ async function main() {
   check("metrics recorded AI recommend", metrics.ai.recommend.requests >= 1);
   check("metrics recorded AI image-to-ui", metrics.ai.image.requests >= 1);
   check("metrics recorded AI url-to-ui", metrics.ai.url.requests >= 2);
+  check("metrics recorded AI design-reference", metrics.ai.design.requests >= 1);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),

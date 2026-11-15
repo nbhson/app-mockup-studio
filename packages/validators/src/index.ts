@@ -277,6 +277,31 @@ export const urlToUiRequestSchema = z.object({
   prompt: z.string().trim().max(1000).optional(),
 });
 
+export const designReferenceRequestSchema = z.object({
+  imageBase64: z.string().min(32).max(8_000_000),
+  mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  palette: z
+    .array(z.string().regex(/^#[0-9a-f]{6}$/i))
+    .max(16)
+    .optional(),
+});
+
+/** Shape the vision model must return for a design reference. */
+export const designReferenceResponseSchema = z.object({
+  summary: z.string().trim().min(1).max(800),
+  colors: z
+    .array(
+      z.object({
+        hex: z.string().regex(/^#[0-9a-f]{6}$/i),
+        role: z.enum(["background", "foreground", "primary"]).optional(),
+      }),
+    )
+    .min(2)
+    .max(12),
+  fontFamily: z.string().trim().min(1).max(120).optional(),
+  radius: z.number().min(0).max(40).optional(),
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [
