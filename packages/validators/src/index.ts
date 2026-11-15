@@ -222,6 +222,29 @@ export const dummyDataResponseSchema = z.object({
     .max(30),
 });
 
+export const responsiveBreakpointSchema = z.enum(["tablet", "mobile"]);
+
+export const responsiveRequestSchema = z.object({
+  document: uiDocumentSchema,
+  breakpoints: z.array(responsiveBreakpointSchema).min(1).max(2).optional(),
+});
+
+/** Shape the model must return (also used to validate the LLM response). */
+export const responsiveResponseSchema = z.object({
+  summary: z.string().trim().min(1).max(1000),
+  suggestions: z
+    .array(
+      z.object({
+        nodeId: z.string().min(1),
+        breakpoint: responsiveBreakpointSchema,
+        title: z.string().trim().min(1).max(200).optional(),
+        detail: z.string().trim().min(1).max(600).optional(),
+        styles: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .max(60),
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

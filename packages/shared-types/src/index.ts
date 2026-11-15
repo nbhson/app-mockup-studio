@@ -183,6 +183,35 @@ export interface DummyDataResult {
   model?: string | null;
 }
 
+// --- AI responsive optimization (plan/07 3.8) -----------------------------
+
+export type ResponsiveBreakpoint = "tablet" | "mobile";
+
+export interface ResponsiveSuggestion {
+  id: string;
+  nodeId: string;
+  nodeType: string;
+  nodeLabel: string;
+  breakpoint: ResponsiveBreakpoint;
+  title: string;
+  detail: string;
+  /** Overrides to write into `node.responsive[breakpoint]`. */
+  styles: Record<string, unknown>;
+}
+
+export interface ResponsiveOptimizeRequestBody {
+  document: UiDocument;
+  /** Breakpoints to analyze; defaults to tablet + mobile. */
+  breakpoints?: ResponsiveBreakpoint[];
+}
+
+export interface ResponsiveOptimizeResult {
+  suggestions: ResponsiveSuggestion[];
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

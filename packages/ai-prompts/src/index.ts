@@ -230,6 +230,54 @@ export function buildDummyDataUserPrompt(
   ].join("\n");
 }
 
+// --- Responsive optimization (plan/07 3.8) --------------------------------
+
+export function buildResponsiveSystemPrompt(breakpoints: string[]): string {
+  return [
+    `You are a responsive design expert reviewing a UI mockup built with AI Mockup Studio.`,
+    `You receive a UiDocument JSON (structured UI schema, never HTML/CSS) and the breakpoints to optimize: ${breakpoints.join(", ")}.`,
+    `Propose safe breakpoint overrides that make the layout work on smaller screens without changing the desktop design.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Only propose overrides for existing node ids; never invent nodes.`,
+    `- Only use UiStyles keys: width, height, minWidth, minHeight, padding, margin, gap,`,
+    `  display, flex, flexDirection, flexWrap, flexShrink, alignItems, justifyContent,`,
+    `  backgroundColor, color, fontSize, fontWeight, borderWidth, borderColor, borderRadius, opacity.`,
+    `- Never change node types, text content or the base (desktop) styles.`,
+    `- Prefer the smallest change that fixes the problem: stack horizontal rows on mobile,`,
+    `  let fixed widths shrink to 100%, reduce oversized padding/type, keep tap targets ≥ 40px.`,
+    `- Do not propose a property that is already overridden for that breakpoint.`,
+    `- Keep the list focused: at most one suggestion per node per breakpoint.`,
+    `- "detail" must explain the mobile/tablet problem in Vietnamese.`,
+    ``,
+    `RESPONSE SHAPE:`,
+    `{`,
+    `  "summary": "<1–2 sentence Vietnamese summary>",`,
+    `  "suggestions": [`,
+    `    { "nodeId": "<existing id>", "breakpoint": "tablet|mobile",`,
+    `      "title": "<short Vietnamese title>", "detail": "<why>",`,
+    `      "styles": { "<UiStyles key>": <value> } }`,
+    `  ]`,
+    `}`,
+  ].join("\n");
+}
+
+export function buildResponsiveUserPrompt(
+  document: UiDocument,
+  breakpoints: string[],
+): string {
+  return [
+    `Optimize this document for: ${breakpoints.join(", ")}.`,
+    `Tablet width ≈ 768px, mobile width ≈ 390px. Existing responsive overrides are part of each node.`,
+    ``,
+    `DOCUMENT (JSON):`,
+    JSON.stringify(document, null, 2),
+    ``,
+    `Return the responsive suggestions JSON now.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

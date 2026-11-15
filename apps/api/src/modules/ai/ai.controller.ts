@@ -15,6 +15,8 @@ import type {
   DesignCritiqueResult,
   DummyDataRequestBody,
   DummyDataResult,
+  ResponsiveOptimizeRequestBody,
+  ResponsiveOptimizeResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -52,5 +54,13 @@ export class AiController {
   @Post("dummy-data")
   async dummyData(@Body() body: DummyDataRequestBody): Promise<DummyDataResult> {
     return this.ai.generateDummyData(body);
+  }
+
+  /** Responsive optimization: safe tablet/mobile overrides. */
+  @Post("responsive")
+  async responsive(
+    @Body() body: ResponsiveOptimizeRequestBody,
+  ): Promise<ResponsiveOptimizeResult> {
+    return this.ai.optimizeResponsive(body);
   }
 }

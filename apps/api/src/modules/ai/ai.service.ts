@@ -10,6 +10,9 @@ import type {
   DummyDataRequestBody,
   DummyDataResult,
   DummyDataChange,
+  ResponsiveOptimizeRequestBody,
+  ResponsiveOptimizeResult,
+  ResponsiveSuggestion,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -20,12 +23,16 @@ import {
   critiqueResponseSchema,
   dummyDataRequestSchema,
   dummyDataResponseSchema,
+  responsiveRequestSchema,
+  responsiveResponseSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
   collectDistinctTypes,
   collectIds,
   knownComponentTypes,
+  walkTree,
+  getComponentDefinition,
   type UiDocument,
   type UiPatch,
   type ViewportMode,
@@ -40,6 +47,8 @@ import {
   buildCritiqueUserPrompt,
   buildDummyDataSystemPrompt,
   buildDummyDataUserPrompt,
+  buildResponsiveSystemPrompt,
+  buildResponsiveUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
@@ -50,6 +59,10 @@ import {
   heuristicDummyData,
   sanitizeDummyProps,
 } from "./dummy-data";
+import {
+  heuristicResponsiveOptimization,
+  sanitizeResponsiveStyles,
+} from "./responsive";
 
 // ---------------------------------------------------------------------------
 // AI Orchestrator (plan/04, plan/09 8.3 AI reliability).
@@ -429,6 +442,115 @@ export class AiService {
     return {
       ...fallback,
       summary: `⚠️ AI không trả về dữ liệu hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng dữ liệu mẫu cục bộ. ${fallback.summary}`,
+    };
+  }
+
+  /**
+   * AI responsive optimization (plan/07 3.8): propose safe tablet/mobile
+   * overrides without touching desktop styles. Works offline.
+   */
+  async optimizeResponsive(
+    body: ResponsiveOptimizeRequestBody,
+  ): Promise<ResponsiveOptimizeResult> {
+    const started = performance.now();
+    const parsed = responsiveRequestSchema.parse(body);
+    const breakpoints = parsed.breakpoints ?? ["tablet", "mobile"];
+
+    if (!this.useRealLLM) {
+      const result = heuristicResponsiveOptimization(parsed.document, breakpoints);
+      this.metrics.recordAi("responsive", "mock", performance.now() - started);
+      return result;
+    }
+
+    const system = buildResponsiveSystemPrompt(breakpoints);
+    const user = buildResponsiveUserPrompt(parsed.document, breakpoints);
+    const nodes = new Map<string, { type: string; label: string }>();
+    walkTree(parsed.document.root, (node) => {
+      nodes.set(node.id, {
+        type: node.type,
+        label: getComponentDefinition(node.type)?.label ?? node.type,
+      });
+    });
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 3000, temperature: 0.3 },
+        );
+        usage.promptTokens = (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const response = responsiveResponseSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+
+        const seen = new Set<string>();
+        const suggestions: ResponsiveSuggestion[] = [];
+        for (const suggestion of response.suggestions) {
+          const node = nodes.get(suggestion.nodeId);
+          if (!node) continue;
+          if (!breakpoints.includes(suggestion.breakpoint)) continue;
+          const key = `${suggestion.breakpoint}:${suggestion.nodeId}`;
+          if (seen.has(key)) continue;
+          const styles = sanitizeResponsiveStyles(suggestion.styles);
+          if (!styles) continue;
+          seen.add(key);
+          suggestions.push({
+            id: `responsive:${suggestion.breakpoint}:${suggestion.nodeId}`,
+            nodeId: suggestion.nodeId,
+            nodeType: node.type,
+            nodeLabel: node.label,
+            breakpoint: suggestion.breakpoint,
+            title: suggestion.title ?? `Tối ưu ${suggestion.breakpoint}`,
+            detail:
+              suggestion.detail ??
+              `AI đề xuất override cho ${node.label} ở breakpoint ${suggestion.breakpoint}.`,
+            styles,
+          });
+        }
+
+        if (suggestions.length === 0) {
+          throw new Error("model returned no valid responsive suggestions");
+        }
+
+        this.metrics.recordAi(
+          "responsive",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          suggestions,
+          summary: response.summary,
+          source: "ai",
+          model: result.model,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "responsive",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    const fallback = heuristicResponsiveOptimization(parsed.document, breakpoints);
+    return {
+      ...fallback,
+      summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
     };
   }
 

@@ -318,6 +318,49 @@ async function main() {
     scopedDummy.changes.length === 1 && scopedDummy.changes[0].nodeId === dummyTarget,
   );
 
+  const responsive = (
+    await request("POST", "/ai/responsive", {
+      body: { document: generated.document },
+    })
+  ).payload;
+  check(
+    "AI responsive returns suggestions",
+    Array.isArray(responsive.suggestions) && responsive.suggestions.length > 0,
+    `count=${responsive.suggestions?.length}`,
+  );
+  check(
+    "AI responsive works offline with the local analyzer",
+    responsive.source === "heuristic",
+  );
+
+  const responsiveNodeIds = new Set();
+  const collectResponsiveIds = (node) => {
+    responsiveNodeIds.add(node.id);
+    (node.children ?? []).forEach(collectResponsiveIds);
+  };
+  collectResponsiveIds(generated.document.root);
+  check(
+    "AI responsive suggestions are safe and target real nodes",
+    responsive.suggestions.every(
+      (suggestion) =>
+        ["tablet", "mobile"].includes(suggestion.breakpoint) &&
+        responsiveNodeIds.has(suggestion.nodeId) &&
+        suggestion.styles &&
+        typeof suggestion.styles === "object" &&
+        Object.keys(suggestion.styles).length > 0,
+    ),
+  );
+
+  const mobileOnly = (
+    await request("POST", "/ai/responsive", {
+      body: { document: generated.document, breakpoints: ["mobile"] },
+    })
+  ).payload;
+  check(
+    "AI responsive honours breakpoint filters",
+    mobileOnly.suggestions.every((suggestion) => suggestion.breakpoint === "mobile"),
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -390,6 +433,7 @@ async function main() {
   check("metrics recorded AI edit", metrics.ai.edit.requests >= 1);
   check("metrics recorded AI critique", metrics.ai.critique.requests >= 1);
   check("metrics recorded AI dummy data", metrics.ai.dummy.requests >= 2);
+  check("metrics recorded AI responsive", metrics.ai.responsive.requests >= 2);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),

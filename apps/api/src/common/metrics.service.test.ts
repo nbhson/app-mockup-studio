@@ -65,6 +65,7 @@ describe("MetricsService", () => {
     metrics.recordAi("edit", "mock", 40, { promptTokens: 5 });
     metrics.recordAi("critique", "mock", 15);
     metrics.recordAi("dummy", "mock", 12);
+    metrics.recordAi("responsive", "mock", 18);
 
     const snapshot = metrics.snapshot();
 
@@ -91,6 +92,11 @@ describe("MetricsService", () => {
       requests: 1,
       byOutcome: { ok: 0, mock: 1, fallback: 0, error: 0 },
       totalMs: 12,
+    });
+    expect(snapshot.ai.responsive).toMatchObject({
+      requests: 1,
+      byOutcome: { ok: 0, mock: 1, fallback: 0, error: 0 },
+      totalMs: 18,
     });
   });
 
