@@ -212,6 +212,32 @@ export interface ResponsiveOptimizeResult {
   model?: string | null;
 }
 
+// --- AI component recommendation (plan/07 3.9) ----------------------------
+
+export interface ComponentRecommendation {
+  type: string;
+  label: string;
+  category: string;
+  reason: string;
+  /** Confidence 0–100, used for ranking and display. */
+  score: number;
+}
+
+export interface ComponentRecommendRequestBody {
+  document: UiDocument;
+  /** Optional description of what the user wants to build next. */
+  prompt?: string;
+  /** Max number of suggestions (1–12, default 6). */
+  max?: number;
+}
+
+export interface ComponentRecommendResult {
+  suggestions: ComponentRecommendation[];
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

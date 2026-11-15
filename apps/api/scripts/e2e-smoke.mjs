@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { uiDocumentSchema } from "@ai-mockup-studio/validators";
+import { knownComponentTypes } from "@ai-mockup-studio/ui-schema";
 
 const API_URL = (process.env.API_URL ?? "http://localhost:3000/api").replace(/\/$/, "");
 const ORIGIN = new URL(API_URL).origin;
@@ -361,6 +362,41 @@ async function main() {
     mobileOnly.suggestions.every((suggestion) => suggestion.breakpoint === "mobile"),
   );
 
+  const recommend = (
+    await request("POST", "/ai/recommend-components", {
+      body: {
+        document: generated.document,
+        prompt: "thêm bảng đơn hàng và biểu đồ doanh thu",
+      },
+    })
+  ).payload;
+  check(
+    "AI recommend returns suggestions",
+    Array.isArray(recommend.suggestions) && recommend.suggestions.length > 0,
+    `count=${recommend.suggestions?.length}`,
+  );
+  check(
+    "AI recommend works offline with the local analyzer",
+    recommend.source === "heuristic",
+  );
+  check(
+    "AI recommend only returns registered component types",
+    recommend.suggestions.every(
+      (suggestion) =>
+        knownComponentTypes.includes(suggestion.type) &&
+        typeof suggestion.reason === "string" &&
+        suggestion.reason.length > 0 &&
+        suggestion.score >= 0 &&
+        suggestion.score <= 100,
+    ),
+  );
+  check(
+    "AI recommend matches the prompt intent",
+    recommend.suggestions.some((suggestion) => suggestion.type === "dashboard.table") &&
+      recommend.suggestions.some((suggestion) => suggestion.type === "dashboard.chart"),
+    recommend.suggestions.map((suggestion) => suggestion.type).join(","),
+  );
+
   // --- Duplicate (document + assets) --------------------------------------
   const dupAsset = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -434,6 +470,7 @@ async function main() {
   check("metrics recorded AI critique", metrics.ai.critique.requests >= 1);
   check("metrics recorded AI dummy data", metrics.ai.dummy.requests >= 2);
   check("metrics recorded AI responsive", metrics.ai.responsive.requests >= 2);
+  check("metrics recorded AI recommend", metrics.ai.recommend.requests >= 1);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),

@@ -13,6 +13,9 @@ import type {
   ResponsiveOptimizeRequestBody,
   ResponsiveOptimizeResult,
   ResponsiveSuggestion,
+  ComponentRecommendRequestBody,
+  ComponentRecommendResult,
+  ComponentRecommendation,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -25,12 +28,15 @@ import {
   dummyDataResponseSchema,
   responsiveRequestSchema,
   responsiveResponseSchema,
+  componentRecommendRequestSchema,
+  componentRecommendResponseSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
   collectDistinctTypes,
   collectIds,
   knownComponentTypes,
+  componentRegistry,
   walkTree,
   getComponentDefinition,
   type UiDocument,
@@ -49,6 +55,8 @@ import {
   buildDummyDataUserPrompt,
   buildResponsiveSystemPrompt,
   buildResponsiveUserPrompt,
+  buildRecommendSystemPrompt,
+  buildRecommendUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
@@ -63,6 +71,7 @@ import {
   heuristicResponsiveOptimization,
   sanitizeResponsiveStyles,
 } from "./responsive";
+import { heuristicRecommendations } from "./recommend";
 
 // ---------------------------------------------------------------------------
 // AI Orchestrator (plan/04, plan/09 8.3 AI reliability).
@@ -548,6 +557,111 @@ export class AiService {
       attempts,
     );
     const fallback = heuristicResponsiveOptimization(parsed.document, breakpoints);
+    return {
+      ...fallback,
+      summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+    };
+  }
+
+  /**
+   * AI component recommendation (plan/07 3.9): suggest the next components to
+   * add based on the user's goal and the current document. Works offline.
+   */
+  async recommendComponents(
+    body: ComponentRecommendRequestBody,
+  ): Promise<ComponentRecommendResult> {
+    const started = performance.now();
+    const parsed = componentRecommendRequestSchema.parse(body);
+    const max = parsed.max ?? 6;
+
+    if (!this.useRealLLM) {
+      const result = heuristicRecommendations(parsed.document, parsed.prompt ?? "", max);
+      this.metrics.recordAi("recommend", "mock", performance.now() - started);
+      return result;
+    }
+
+    const availableTypes = knownComponentTypes.map((type) => {
+      const definition = componentRegistry[type];
+      return {
+        type,
+        label: definition.label,
+        category: definition.category,
+      };
+    });
+    const system = buildRecommendSystemPrompt({
+      availableTypes,
+      prompt: parsed.prompt,
+    });
+    const user = buildRecommendUserPrompt(parsed.document, parsed.prompt);
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 2000, temperature: 0.5 },
+        );
+        usage.promptTokens = (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const response = componentRecommendResponseSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+
+        const seen = new Set<string>();
+        const suggestions: ComponentRecommendation[] = [];
+        for (const suggestion of response.suggestions) {
+          if (!knownComponentTypes.includes(suggestion.type)) continue;
+          if (seen.has(suggestion.type)) continue;
+          seen.add(suggestion.type);
+          const definition = componentRegistry[suggestion.type];
+          suggestions.push({
+            type: suggestion.type,
+            label: definition.label,
+            category: definition.category,
+            reason: suggestion.reason,
+            score: Math.max(0, Math.min(100, Math.round(suggestion.score ?? 60))),
+          });
+          if (suggestions.length >= max) break;
+        }
+
+        if (suggestions.length === 0) {
+          throw new Error("model returned no valid component recommendations");
+        }
+
+        this.metrics.recordAi(
+          "recommend",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          suggestions,
+          summary: response.summary,
+          source: "ai",
+          model: result.model,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "recommend",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    const fallback = heuristicRecommendations(parsed.document, parsed.prompt ?? "", max);
     return {
       ...fallback,
       summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,

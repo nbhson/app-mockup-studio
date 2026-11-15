@@ -278,6 +278,55 @@ export function buildResponsiveUserPrompt(
   ].join("\n");
 }
 
+// --- Component recommendation (plan/07 3.9) -------------------------------
+
+export interface ComponentRecommendPromptContext {
+  availableTypes: Array<{ type: string; label: string; category: string }>;
+  prompt?: string;
+}
+
+export function buildRecommendSystemPrompt(
+  ctx: ComponentRecommendPromptContext,
+): string {
+  return [
+    `You are a UI composition expert for AI Mockup Studio.`,
+    `You receive a UiDocument JSON (structured UI schema) and an optional user goal.`,
+    `Recommend the next components to add so the screen best fulfils that goal.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Only recommend component types from the AVAILABLE TYPES list.`,
+    `- Prefer components that are missing from the current document and genuinely useful.`,
+    `- Do not repeat a type; order suggestions by usefulness.`,
+    `- "reason" must be a concrete Vietnamese sentence tied to the document/goal.`,
+    `- "score" is confidence 0–100.`,
+    ``,
+    `AVAILABLE TYPES (JSON):`,
+    JSON.stringify(ctx.availableTypes, null, 2),
+    ``,
+    ctx.prompt ? `USER GOAL: ${ctx.prompt}` : `USER GOAL: (none — infer from the document)`,
+    ``,
+    `RESPONSE SHAPE:`,
+    `{`,
+    `  "summary": "<1–2 sentence Vietnamese summary>",`,
+    `  "suggestions": [`,
+    `    { "type": "<type>", "reason": "<why it helps>", "score": 0-100 }`,
+    `  ]`,
+    `}`,
+  ].join("\n");
+}
+
+export function buildRecommendUserPrompt(document: UiDocument, prompt?: string): string {
+  return [
+    prompt ? `Goal: ${prompt}` : `Goal: improve the current screen`,
+    ``,
+    `DOCUMENT (JSON):`,
+    JSON.stringify(document, null, 2),
+    ``,
+    `Return the recommendation JSON now.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

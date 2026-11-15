@@ -10,9 +10,12 @@ import {
   type PaletteItem,
 } from "../../stores/editor";
 import ComponentThumb from "./ComponentThumb.vue";
+import ComponentRecommendDialog from "../analysis/ComponentRecommendDialog.vue";
 
 const doc = useDocumentStore();
 const editor = useEditorStore();
+
+const showRecommend = ref(false);
 
 const paletteQuery = ref("");
 const categoryLabels: Record<string, string> = {
@@ -221,8 +224,17 @@ function addComponent(type: string) {
 
 <template>
   <aside class="flex h-full w-60 flex-col border-r border-ds-border bg-white">
-    <div class="shrink-0 border-b border-ds-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      Components
+    <div class="flex shrink-0 items-center justify-between border-b border-ds-border px-3 py-2">
+      <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Components
+      </span>
+      <button
+        class="rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50"
+        title="Gợi ý component tiếp theo bằng AI"
+        @click="showRecommend = true"
+      >
+        ✨ Gợi ý
+      </button>
     </div>
     <div class="shrink-0 border-b border-ds-border p-2">
       <input
@@ -386,5 +398,6 @@ function addComponent(type: string) {
         </div>
       </div>
     </div>
+    <ComponentRecommendDialog :open="showRecommend" @close="showRecommend = false" />
   </aside>
 </template>

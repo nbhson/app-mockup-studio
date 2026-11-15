@@ -245,6 +245,26 @@ export const responsiveResponseSchema = z.object({
     .max(60),
 });
 
+export const componentRecommendRequestSchema = z.object({
+  document: uiDocumentSchema,
+  prompt: z.string().trim().max(1000).optional(),
+  max: z.number().int().min(1).max(12).optional(),
+});
+
+/** Shape the model must return (also used to validate the LLM response). */
+export const componentRecommendResponseSchema = z.object({
+  summary: z.string().trim().min(1).max(1000),
+  suggestions: z
+    .array(
+      z.object({
+        type: z.string().min(1).max(100),
+        reason: z.string().trim().min(1).max(600),
+        score: z.number().min(0).max(100).optional(),
+      }),
+    )
+    .max(12),
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

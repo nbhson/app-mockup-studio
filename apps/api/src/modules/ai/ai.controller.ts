@@ -17,6 +17,8 @@ import type {
   DummyDataResult,
   ResponsiveOptimizeRequestBody,
   ResponsiveOptimizeResult,
+  ComponentRecommendRequestBody,
+  ComponentRecommendResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -62,5 +64,13 @@ export class AiController {
     @Body() body: ResponsiveOptimizeRequestBody,
   ): Promise<ResponsiveOptimizeResult> {
     return this.ai.optimizeResponsive(body);
+  }
+
+  /** Component recommendation: suggest the next components to add. */
+  @Post("recommend-components")
+  async recommendComponents(
+    @Body() body: ComponentRecommendRequestBody,
+  ): Promise<ComponentRecommendResult> {
+    return this.ai.recommendComponents(body);
   }
 }
