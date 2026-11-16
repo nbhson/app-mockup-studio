@@ -14,5 +14,11 @@ export const router = createRouter({
       name: "workspace",
       component: () => import("./modules/workspace/WorkspaceView.vue"),
     },
+    {
+      path: "/share/:token",
+      name: "share",
+      component: () => import("./modules/share/PublicShareView.vue"),
+      meta: { public: true },
+    },
   ],
 });

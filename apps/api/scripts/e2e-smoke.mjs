@@ -4,9 +4,9 @@
 //
 // Exercises the full HTTP surface against a running API + seeded Postgres:
 // projects CRUD/duplicate, documents save/load, version history + reversible
-// restore, cross-project isolation, assets validation/raw bytes/delete and
-// asset copying on duplicate, hidden/locked flags, AI generate/edit and
-// observability counters.
+// restore, cross-project isolation, public/private share links (password,
+// expiry, revoke), assets validation/raw bytes/delete and asset copying on
+// duplicate, hidden/locked flags, AI generate/edit and observability counters.
 //
 // Usage: API_URL=http://localhost:3000/api pnpm --filter @ai-mockup-studio/api e2e:api
 // Requires the demo user from `pnpm db:seed` (CI seeds before starting the API).
@@ -14,6 +14,7 @@
 
 import { uiDocumentSchema } from "@ai-mockup-studio/validators";
 import { knownComponentTypes } from "@ai-mockup-studio/ui-schema";
+import { Client } from "pg";
 import { createServer } from "node:http";
 
 const API_URL = (process.env.API_URL ?? "http://localhost:3000/api").replace(/\/$/, "");
@@ -58,10 +59,13 @@ function makeDoc(name) {
 }
 
 async function request(method, path, options = {}) {
-  const { body, status } = options;
+  const { body, status, headers } = options;
   const res = await fetch(`${API_URL}${path}`, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -83,6 +87,20 @@ async function request(method, path, options = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Move a share's expiry into the past so the 410 path can be exercised. */
+async function expireShareNow(token) {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+  try {
+    await client.query(
+      "UPDATE shares SET expires_at = now() - interval '1 minute' WHERE token = $1",
+      [token],
+    );
+  } finally {
+    await client.end();
+  }
 }
 
 async function main() {
@@ -353,6 +371,131 @@ async function main() {
     status: 400,
   });
   check("cannot delete the last page", true);
+
+  // --- Public/private shares (plan/07 4.7) --------------------------------
+  const emptyShares = (await request("GET", `/projects/${project.id}/shares`)).payload;
+  check("share list starts empty", emptyShares.shares.length === 0);
+
+  const privateNoPassword = await request("POST", `/projects/${isolation.id}/shares`, {
+    body: { visibility: "private" },
+    status: 400,
+  });
+  check("private share requires a password", privateNoPassword.status === 400);
+
+  const publicShare = (
+    await request("POST", `/projects/${isolation.id}/shares`, {
+      body: { visibility: "public", expiresInDays: 7 },
+    })
+  ).payload;
+  check(
+    "create public share",
+    publicShare.visibility === "public" &&
+      publicShare.hasPassword === false &&
+      typeof publicShare.token === "string" &&
+      publicShare.token.length >= 20 &&
+      publicShare.path === `/share/${publicShare.token}` &&
+      typeof publicShare.expiresAt === "string",
+    JSON.stringify(publicShare),
+  );
+
+  const shared = (await request("GET", `/share/${publicShare.token}`)).payload;
+  check(
+    "public share resolves without auth",
+    shared.projectName === isolation.name &&
+      shared.visibility === "public" &&
+      shared.pages.length === 1 &&
+      uiDocumentSchema.safeParse(shared.pages[0].document).success,
+    JSON.stringify({ projectName: shared.projectName, pages: shared.pages?.length }),
+  );
+
+  const sharedAgain = (await request("GET", `/share/${publicShare.token}`)).payload;
+  const listedShare = (await request("GET", `/projects/${isolation.id}/shares`)).payload.shares.find(
+    (entry) => entry.id === publicShare.id,
+  );
+  check(
+    "public share records views",
+    sharedAgain.token === publicShare.token && listedShare?.viewCount >= 2,
+    JSON.stringify(listedShare),
+  );
+
+  const privateShare = (
+    await request("POST", `/projects/${isolation.id}/shares`, {
+      body: { visibility: "private", password: "mat-khau-e2e" },
+    })
+  ).payload;
+  check(
+    "create private share",
+    privateShare.visibility === "private" && privateShare.hasPassword === true,
+    JSON.stringify(privateShare),
+  );
+
+  const locked = await request("GET", `/share/${privateShare.token}`, { status: 401 });
+  check(
+    "private share asks for a password",
+    /mật khẩu/i.test(String(locked.payload?.message ?? "")),
+    String(locked.payload?.message ?? ""),
+  );
+
+  const wrongPassword = await request("GET", `/share/${privateShare.token}`, {
+    status: 401,
+    headers: { "x-share-password": "sai-mat-khau" },
+  });
+  check(
+    "private share rejects the wrong password",
+    /không đúng/i.test(String(wrongPassword.payload?.message ?? "")),
+    String(wrongPassword.payload?.message ?? ""),
+  );
+
+  const unlocked = (
+    await request("GET", `/share/${privateShare.token}`, {
+      headers: { "x-share-password": "mat-khau-e2e" },
+    })
+  ).payload;
+  check(
+    "private share opens with the right password",
+    unlocked.visibility === "private" &&
+      unlocked.pages.length === 1 &&
+      uiDocumentSchema.safeParse(unlocked.pages[0].document).success,
+  );
+
+  const expiryShare = (
+    await request("POST", `/projects/${isolation.id}/shares`, {
+      body: { visibility: "public" },
+    })
+  ).payload;
+  if (process.env.DATABASE_URL) {
+    await expireShareNow(expiryShare.token);
+    const expired = await request("GET", `/share/${expiryShare.token}`, { status: 410 });
+    check("expired share returns 410", expired.status === 410);
+  } else {
+    console.log("  - skip expired share check (DATABASE_URL not set)");
+  }
+
+  const revoked = (
+    await request("DELETE", `/projects/${isolation.id}/shares/${privateShare.id}`)
+  ).payload;
+  check(
+    "revoke removes the link from the list",
+    !revoked.shares.some((entry) => entry.id === privateShare.id),
+  );
+  await request("GET", `/share/${privateShare.token}`, { status: 404 });
+  check("revoked share stops resolving", true);
+
+  const crossProjectRevoke = await request(
+    "DELETE",
+    `/projects/${project.id}/shares/${publicShare.id}`,
+    { status: 404 },
+  );
+  check("cannot revoke another project's share", crossProjectRevoke.status === 404);
+
+  const otherList = (await request("GET", `/projects/${project.id}/shares`)).payload;
+  check("share list is project-scoped", otherList.shares.length === 0);
+
+  const badExpiry = await request("POST", `/projects/${isolation.id}/shares`, {
+    body: { visibility: "public", expiresInDays: 0 },
+    status: 400,
+  });
+  check("share expiry is validated", badExpiry.status === 400);
 
   // --- Assets --------------------------------------------------------------
   const upload = (
@@ -796,6 +939,8 @@ async function main() {
     await request("DELETE", `/projects/${id}`);
   }
   await request("GET", `/projects/${project.id}`, { status: 404 });
+  await request("GET", `/share/${publicShare.token}`, { status: 404 });
+  check("deleting a project revokes its shares", true);
   const remaining = (await request("GET", "/projects")).payload;
   check(
     "delete projects",

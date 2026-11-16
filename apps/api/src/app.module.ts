@@ -4,6 +4,7 @@ import { DbModule } from "./db/db.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PagesModule } from "./modules/pages/pages.module";
+import { SharesModule } from "./modules/shares/shares.module";
 import { VersionsModule } from "./modules/versions/versions.module";
 import { AssetsModule } from "./modules/assets/assets.module";
 import { AiModule } from "./modules/ai/ai.module";
@@ -20,6 +21,7 @@ import { SecurityHeadersMiddleware } from "./common/security-headers.middleware"
     ProjectsModule,
     DocumentsModule,
     PagesModule,
+    SharesModule,
     VersionsModule,
     AssetsModule,
     AiModule,

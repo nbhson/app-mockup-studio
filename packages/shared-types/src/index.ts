@@ -385,6 +385,53 @@ export interface MultiPageResult {
   model?: string | null;
 }
 
+// --- Shares (public/private preview links, plan/07 4.7) --------------------
+
+export type ShareVisibility = "public" | "private";
+
+export interface ShareDto {
+  id: string;
+  token: string;
+  visibility: ShareVisibility;
+  hasPassword: boolean;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  viewCount: number;
+  lastViewedAt: string | null;
+  createdAt: string;
+  /** Web-app path for the share, e.g. `/share/<token>`. */
+  path: string;
+}
+
+export interface ShareListResponse {
+  projectId: string;
+  shares: ShareDto[];
+}
+
+export interface CreateShareInput {
+  visibility: ShareVisibility;
+  /** Required when visibility is `private` (min 4 chars). */
+  password?: string;
+  /** Link lifetime in days; omitted means it never expires. */
+  expiresInDays?: number;
+}
+
+export interface PublicSharePageDto {
+  name: string;
+  slug: string;
+  document: UiDocument;
+}
+
+/** Read-only payload served by `GET /share/:token` (no auth required). */
+export interface PublicShareResponse {
+  token: string;
+  projectName: string;
+  visibility: ShareVisibility;
+  pages: PublicSharePageDto[];
+  createdAt: string;
+  expiresAt: string | null;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

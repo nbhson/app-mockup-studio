@@ -1,10 +1,17 @@
 <script setup lang="ts">
 // Root shell: a simple top bar + routed content (projects / workspace).
+// Public share links render their own read-only shell (no editor nav).
+import { computed } from "vue";
+import { useRoute } from "vue-router";
+
+const route = useRoute();
+const isPublicShare = computed(() => route.meta.public === true);
 </script>
 
 <template>
   <div class="h-full w-full flex flex-col">
     <header
+      v-if="!isPublicShare"
       class="h-12 shrink-0 flex items-center justify-between border-b border-ds-border bg-white px-4"
     >
       <div class="flex items-center gap-2 font-semibold text-slate-900">

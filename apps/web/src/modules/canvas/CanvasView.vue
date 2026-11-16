@@ -23,6 +23,7 @@ import ImageToUiDialog from "../analysis/ImageToUiDialog.vue";
 import UrlToUiDialog from "../analysis/UrlToUiDialog.vue";
 import DesignReferenceDialog from "../analysis/DesignReferenceDialog.vue";
 import MultiPageDialog from "../pages/MultiPageDialog.vue";
+import ShareDialog from "../share/ShareDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -42,6 +43,7 @@ const showImageToUi = ref(false);
 const showUrlToUi = ref(false);
 const showDesignRef = ref(false);
 const showMultiPage = ref(false);
+const showShare = ref(false);
 const pageBusy = ref(false);
 const pageError = ref<string | null>(null);
 
@@ -851,6 +853,14 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="Tạo link xem trước công khai hoặc có mật khẩu"
+          @click="showShare = true"
+        >
+          🔗 Chia sẻ
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="Xuất code HTML / React / Vue"
           @click="showCode = true"
         >
@@ -1104,5 +1114,6 @@ onBeforeUnmount(() => {
     <UrlToUiDialog :open="showUrlToUi" @close="showUrlToUi = false" />
     <DesignReferenceDialog :open="showDesignRef" @close="showDesignRef = false" />
     <MultiPageDialog :open="showMultiPage" @close="showMultiPage = false" />
+    <ShareDialog :open="showShare" @close="showShare = false" />
   </div>
 </template>

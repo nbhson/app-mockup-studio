@@ -24,7 +24,7 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins,
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-share-password"],
   });
 
   app.setGlobalPrefix("api");

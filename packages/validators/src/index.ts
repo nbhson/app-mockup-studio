@@ -358,6 +358,26 @@ export const multiPageResponseSchema = z.object({
     .max(5),
 });
 
+// --- Shares (plan/07 4.7) --------------------------------------------------
+
+export const shareVisibilitySchema = z.enum(["public", "private"]);
+
+export const createShareSchema = z
+  .object({
+    visibility: shareVisibilitySchema,
+    password: z.string().min(4).max(128).optional(),
+    expiresInDays: z.number().int().min(1).max(365).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.visibility === "private" && !value.password) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["password"],
+        message: "Link riêng tư cần mật khẩu (ít nhất 4 ký tự)",
+      });
+    }
+  });
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

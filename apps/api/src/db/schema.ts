@@ -55,6 +55,24 @@ export const pages = pgTable("pages", {
   uniqueIndex("pages_project_slug_key").on(t.projectId, t.slug),
 ]);
 
+// plan/07 4.7 — public/private preview links. A share points at the whole
+// project (all pages) and can be revoked without deleting its audit row.
+export const shares = pgTable("shares", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  visibility: text("visibility").notNull().default("public"), // public | private
+  passwordHash: text("password_hash"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  viewCount: integer("view_count").notNull().default(0),
+  lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("shares_token_key").on(t.token),
+  index("shares_project_idx").on(t.projectId),
+]);
+
 export const versions = pgTable("versions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   documentId: text("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
@@ -102,3 +120,4 @@ export type UserRow = typeof users.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type DocumentRow = typeof documents.$inferSelect;
 export type AssetRow = typeof assets.$inferSelect;
+export type ShareRow = typeof shares.$inferSelect;
