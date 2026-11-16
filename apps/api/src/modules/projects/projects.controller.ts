@@ -7,7 +7,7 @@ import {
   Post,
   Body,
 } from "@nestjs/common";
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import type {
   ProjectDto,
   CreateProjectInput,
@@ -17,7 +17,7 @@ import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { createProjectSchema, updateProjectSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
 import { DemoUserService } from "../../db/demo-user.service";
-import { projects, documents, assets } from "../../db/schema";
+import { projects, documents, pages, assets } from "../../db/schema";
 import { remapAssetUrls } from "./duplicate-document";
 
 function toDto(row: {
@@ -95,7 +95,6 @@ export class ProjectsController {
         name: `${source.name} (bản sao)`,
         description: source.description,
         ownerId: source.ownerId,
-        currentPageId: source.currentPageId,
       })
       .returning();
 
@@ -123,21 +122,88 @@ export class ProjectsController {
       );
     }
 
-    const [sourceDoc] = await this.db.client
+    const sourcePages = await this.db.client
       .select()
-      .from(documents)
-      .where(eq(documents.projectId, id))
-      .limit(1);
-    if (sourceDoc) {
-      const schema = remapAssetUrls(
-        sourceDoc.schema as unknown as UiDocument,
-        urlMap,
-      );
-      await this.db.client.insert(documents).values({
-        projectId: copy.id,
-        schemaVersion: sourceDoc.schemaVersion,
-        schema,
-      });
+      .from(pages)
+      .where(eq(pages.projectId, id))
+      .orderBy(asc(pages.position), asc(pages.createdAt));
+
+    const pageIdMap = new Map<string, string>();
+    if (sourcePages.length > 0) {
+      for (const sourcePage of sourcePages) {
+        const [sourceDoc] = await this.db.client
+          .select()
+          .from(documents)
+          .where(eq(documents.id, sourcePage.documentId))
+          .limit(1);
+        if (!sourceDoc) continue;
+        const schema = remapAssetUrls(
+          sourceDoc.schema as unknown as UiDocument,
+          urlMap,
+        );
+        const [docCopy] = await this.db.client
+          .insert(documents)
+          .values({
+            projectId: copy.id,
+            schemaVersion: sourceDoc.schemaVersion,
+            schema,
+          })
+          .returning();
+        const [pageCopy] = await this.db.client
+          .insert(pages)
+          .values({
+            projectId: copy.id,
+            name: sourcePage.name,
+            slug: sourcePage.slug,
+            position: sourcePage.position,
+            documentId: docCopy.id,
+          })
+          .returning();
+        pageIdMap.set(sourcePage.id, pageCopy.id);
+      }
+    } else {
+      // Legacy project without pages: copy the document and wrap it in a page.
+      const [sourceDoc] = await this.db.client
+        .select()
+        .from(documents)
+        .where(eq(documents.projectId, id))
+        .limit(1);
+      if (sourceDoc) {
+        const schema = remapAssetUrls(
+          sourceDoc.schema as unknown as UiDocument,
+          urlMap,
+        );
+        const [docCopy] = await this.db.client
+          .insert(documents)
+          .values({
+            projectId: copy.id,
+            schemaVersion: sourceDoc.schemaVersion,
+            schema,
+          })
+          .returning();
+        const [pageCopy] = await this.db.client
+          .insert(pages)
+          .values({
+            projectId: copy.id,
+            name: (schema as UiDocument).name?.trim() || "Home",
+            slug: "home",
+            position: 0,
+            documentId: docCopy.id,
+          })
+          .returning();
+        pageIdMap.set("legacy", pageCopy.id);
+      }
+    }
+
+    const mappedCurrent =
+      (source.currentPageId && pageIdMap.get(source.currentPageId)) ||
+      [...pageIdMap.values()][0] ||
+      null;
+    if (mappedCurrent) {
+      await this.db.client
+        .update(projects)
+        .set({ currentPageId: mappedCurrent })
+        .where(eq(projects.id, copy.id));
     }
 
     return toDto(copy);

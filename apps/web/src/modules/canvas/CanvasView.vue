@@ -22,6 +22,7 @@ import ResponsiveOptimizeDialog from "../analysis/ResponsiveOptimizeDialog.vue";
 import ImageToUiDialog from "../analysis/ImageToUiDialog.vue";
 import UrlToUiDialog from "../analysis/UrlToUiDialog.vue";
 import DesignReferenceDialog from "../analysis/DesignReferenceDialog.vue";
+import MultiPageDialog from "../pages/MultiPageDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -40,6 +41,9 @@ const showResponsive = ref(false);
 const showImageToUi = ref(false);
 const showUrlToUi = ref(false);
 const showDesignRef = ref(false);
+const showMultiPage = ref(false);
+const pageBusy = ref(false);
+const pageError = ref<string | null>(null);
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
@@ -707,6 +711,70 @@ async function duplicateProject() {
   }
 }
 
+// --- Pages (plan/07 3.4) ----------------------------------------------------
+
+async function switchPage(pageId: string) {
+  if (pageBusy.value || pageId === doc.currentPageId) return;
+  pageBusy.value = true;
+  pageError.value = null;
+  try {
+    await doc.switchPage(pageId);
+  } catch (e) {
+    pageError.value = e instanceof Error ? e.message : "Không chuyển được trang";
+  } finally {
+    pageBusy.value = false;
+  }
+}
+
+async function addPage() {
+  if (!doc.projectId || pageBusy.value) return;
+  const suggested = `Trang ${doc.pages.length + 1}`;
+  const name = window.prompt("Tên trang mới", suggested);
+  if (!name?.trim()) return;
+  pageBusy.value = true;
+  pageError.value = null;
+  try {
+    await doc.createPage(name.trim());
+  } catch (e) {
+    pageError.value = e instanceof Error ? e.message : "Không tạo được trang";
+  } finally {
+    pageBusy.value = false;
+  }
+}
+
+async function renameCurrentPage() {
+  const page = doc.currentPage;
+  if (!page || pageBusy.value) return;
+  const name = window.prompt("Đổi tên trang", page.name);
+  if (!name?.trim() || name.trim() === page.name) return;
+  pageBusy.value = true;
+  pageError.value = null;
+  try {
+    await doc.renamePage(page.id, name.trim());
+  } catch (e) {
+    pageError.value = e instanceof Error ? e.message : "Không đổi tên được trang";
+  } finally {
+    pageBusy.value = false;
+  }
+}
+
+async function deleteCurrentPage() {
+  const page = doc.currentPage;
+  if (!page || doc.pages.length <= 1 || pageBusy.value) return;
+  if (!window.confirm(`Xoá trang “${page.name}”? Hành động này không thể hoàn tác.`)) {
+    return;
+  }
+  pageBusy.value = true;
+  pageError.value = null;
+  try {
+    await doc.deletePage(page.id);
+  } catch (e) {
+    pageError.value = e instanceof Error ? e.message : "Không xoá được trang";
+  } finally {
+    pageBusy.value = false;
+  }
+}
+
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("resize", onResize);
@@ -880,6 +948,72 @@ onBeforeUnmount(() => {
     </div>
 
     <div
+      v-if="doc.pages.length > 0"
+      class="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-ds-border bg-slate-50/80 px-2 text-xs"
+    >
+      <span class="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+        Trang
+      </span>
+      <button
+        v-for="page in doc.pages"
+        :key="page.id"
+        class="shrink-0 rounded px-2 py-1 font-medium transition-colors disabled:opacity-40"
+        :class="
+          page.id === doc.currentPageId
+            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-200'
+            : 'text-slate-500 hover:bg-white hover:text-slate-700'
+        "
+        :disabled="pageBusy || doc.pagesLoading"
+        :aria-current="page.id === doc.currentPageId ? 'page' : undefined"
+        :title="`Mở trang ${page.name} (/${page.slug})`"
+        @click="switchPage(page.id)"
+      >
+        {{ page.name }}
+      </button>
+      <button
+        class="shrink-0 rounded px-1.5 py-1 text-slate-400 hover:bg-white hover:text-slate-600 disabled:opacity-40"
+        :disabled="pageBusy || doc.pagesLoading"
+        title="Thêm trang mới"
+        @click="addPage"
+      >
+        ＋
+      </button>
+      <button
+        class="shrink-0 rounded px-1.5 py-1 text-slate-400 hover:bg-white hover:text-slate-600 disabled:opacity-40"
+        :disabled="!doc.currentPage || pageBusy || doc.pagesLoading"
+        title="Đổi tên trang hiện tại"
+        @click="renameCurrentPage"
+      >
+        ✎
+      </button>
+      <button
+        class="shrink-0 rounded px-1.5 py-1 text-slate-400 hover:bg-white hover:text-red-500 disabled:opacity-40"
+        :disabled="doc.pages.length <= 1 || pageBusy || doc.pagesLoading"
+        title="Xoá trang hiện tại"
+        @click="deleteCurrentPage"
+      >
+        🗑
+      </button>
+      <span v-if="pageBusy || doc.pagesLoading" class="shrink-0 text-[10px] text-slate-400">
+        Đang lưu…
+      </span>
+      <span
+        v-if="pageError"
+        class="max-w-56 shrink-0 truncate text-[10px] text-red-500"
+        :title="pageError"
+      >
+        {{ pageError }}
+      </span>
+      <button
+        class="ml-auto shrink-0 rounded px-2 py-1 font-medium text-blue-600 hover:bg-white hover:text-blue-700"
+        title="AI tạo nhiều trang liên kết từ một prompt"
+        @click="showMultiPage = true"
+      >
+        ✨ Nhiều trang
+      </button>
+    </div>
+
+    <div
       data-canvas
       class="relative min-h-0 flex-1 overflow-auto bg-slate-200/60"
       @pointerdown="onCanvasPointerDown"
@@ -969,5 +1103,6 @@ onBeforeUnmount(() => {
     <ImageToUiDialog :open="showImageToUi" @close="showImageToUi = false" />
     <UrlToUiDialog :open="showUrlToUi" @close="showUrlToUi = false" />
     <DesignReferenceDialog :open="showDesignRef" @close="showDesignRef = false" />
+    <MultiPageDialog :open="showMultiPage" @close="showMultiPage = false" />
   </div>
 </template>

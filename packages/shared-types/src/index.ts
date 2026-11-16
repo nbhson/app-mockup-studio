@@ -40,10 +40,54 @@ export interface SaveDocumentBody {
 
 export interface DocumentResponse {
   projectId: string;
+  /** Active page row id (empty string when the project has no page yet). */
   currentPageId: string;
   /** null when the project has no document yet (frontend prompts the AI). */
   document: UiDocument | null;
   updatedAt: string;
+}
+
+// --- Pages (multi-page, plan/07 3.4) ---------------------------------------
+
+export interface PageSummaryDto {
+  id: string;
+  name: string;
+  slug: string;
+  position: number;
+  updatedAt: string;
+}
+
+export interface PageListResponse {
+  projectId: string;
+  currentPageId: string | null;
+  pages: PageSummaryDto[];
+}
+
+export interface PageDetailResponse {
+  projectId: string;
+  page: PageSummaryDto;
+  document: UiDocument;
+}
+
+export interface CreatePageInput {
+  name: string;
+  slug?: string;
+  document?: UiDocument;
+}
+
+export interface UpdatePageInput {
+  name?: string;
+  slug?: string;
+  position?: number;
+}
+
+/** Bulk replace used by AI multi-page generation (atomic in the API). */
+export interface ReplacePagesInput {
+  pages: Array<{
+    name: string;
+    slug?: string;
+    document: UiDocument;
+  }>;
 }
 
 // --- Versions (history) -----------------------------------------------------
@@ -311,6 +355,30 @@ export interface DesignReferenceColor {
 
 export interface DesignReferenceResult {
   palette: DesignReferenceColor[];
+  theme: Theme;
+  summary: string;
+  source: "ai" | "heuristic";
+  model?: string | null;
+}
+
+// --- AI multi-page generation (plan/07 3.4) --------------------------------
+
+export interface MultiPageRequestBody {
+  prompt: string;
+  /** Number of pages to generate (2–5, default 3). */
+  pageCount?: number;
+  viewportMode?: ViewportMode;
+}
+
+export interface GeneratedPage {
+  name: string;
+  slug: string;
+  document: UiDocument;
+}
+
+export interface MultiPageResult {
+  pages: GeneratedPage[];
+  /** Shared theme applied to every generated page. */
   theme: Theme;
   summary: string;
   source: "ai" | "heuristic";

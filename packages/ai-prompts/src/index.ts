@@ -432,6 +432,49 @@ export function buildDesignReferenceUserPrompt(): string {
   return `Extract the design tokens from this reference image. Return the JSON now.`;
 }
 
+// --- Multi-page generation (plan/07 3.4) ----------------------------------
+
+export interface MultiPagePromptContext {
+  availableTypes: string[];
+  pageCount: number;
+  viewport: { width: number; height: number };
+  themeName: string;
+}
+
+export function buildMultiPageSystemPrompt(ctx: MultiPagePromptContext): string {
+  return [
+    `You are a product designer generating a multi-page UI mockup for AI Mockup Studio.`,
+    `You receive one product goal and must produce ${ctx.pageCount} linked pages that share a single design system.`,
+    ``,
+    `RULES:`,
+    `- Respond with pure JSON only. No markdown fences, no commentary.`,
+    `- Every page must use the SAME theme tokens (colors, font, radius).`,
+    `- Each page needs a short human name and a URL-safe lowercase slug (a-z, 0-9, dashes).`,
+    `- Include navigation in every page that references the other pages by name (navbar or sidebar).`,
+    `- Keep pages structurally distinct: overview/dashboard, list/detail, settings/form, pricing, contact… as fits the goal.`,
+    `- Only use component types from the AVAILABLE TYPES list.`,
+    `- Every node needs a unique id, a known type and sensible props/styles.`,
+    `- The document viewport is ${ctx.viewport.width}×${ctx.viewport.height}.`,
+    ``,
+    `AVAILABLE TYPES (JSON):`,
+    JSON.stringify(ctx.availableTypes, null, 2),
+    ``,
+    `RESPONSE SHAPE:`,
+    `{`,
+    `  "summary": "<1–2 Vietnamese sentences>",`,
+    `  "pages": [{ "name": "Trang chủ", "slug": "home", "document": <UiDocument> }]`,
+    `}`,
+  ].join("\n");
+}
+
+export function buildMultiPageUserPrompt(prompt: string): string {
+  return [
+    `Product goal: ${prompt}`,
+    ``,
+    `Generate the linked pages now. Return the JSON.`,
+  ].join("\n");
+}
+
 export function summarizeDocumentBrief(doc: UiDocument): string {
   const types = new Set<string>();
   const collect = (node: UiNode) => {

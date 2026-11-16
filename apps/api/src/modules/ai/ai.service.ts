@@ -22,6 +22,9 @@ import type {
   UrlToUiResult,
   DesignReferenceRequestBody,
   DesignReferenceResult,
+  MultiPageRequestBody,
+  MultiPageResult,
+  GeneratedPage,
 } from "@ai-mockup-studio/shared-types";
 import {
   uiDocumentSchema,
@@ -40,6 +43,8 @@ import {
   urlToUiRequestSchema,
   designReferenceRequestSchema,
   designReferenceResponseSchema,
+  multiPageRequestSchema,
+  multiPageResponseSchema,
 } from "@ai-mockup-studio/validators";
 import {
   createId,
@@ -73,6 +78,8 @@ import {
   buildUrlToUiUserPrompt,
   buildDesignReferenceSystemPrompt,
   buildDesignReferenceUserPrompt,
+  buildMultiPageSystemPrompt,
+  buildMultiPageUserPrompt,
 } from "@ai-mockup-studio/ai-prompts";
 import { generateMockDocument } from "../../sample-documents";
 import { MetricsService, type AiUsage } from "../../common/metrics.service";
@@ -102,6 +109,7 @@ import {
   themeFromPalette,
   withThemeRoles,
 } from "./design-reference";
+import { heuristicMultiPage } from "./multi-page";
 import { validateAssetData } from "../assets/asset-validation";
 
 /** Screenshots are often larger than ordinary assets; keep a safe JSON cap. */
@@ -1014,6 +1022,110 @@ export class AiService {
     return {
       ...fallback,
       summary: `⚠️ AI không trả về bảng màu hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+    };
+  }
+
+  /**
+   * Multi-page generation (plan/07 3.4): one prompt → several linked pages
+   * sharing a theme. Works offline with the deterministic builder.
+   */
+  async generateMultiPage(body: MultiPageRequestBody): Promise<MultiPageResult> {
+    const started = performance.now();
+    const parsed = multiPageRequestSchema.parse(body);
+    const pageCount = parsed.pageCount ?? 3;
+    const viewportMode = parsed.viewportMode ?? "desktop";
+    const viewport =
+      viewportMode === "mobile"
+        ? { width: 390, height: 844 }
+        : viewportMode === "tablet"
+          ? { width: 768, height: 1024 }
+          : { width: 1440, height: 900 };
+    const buildFallback = () =>
+      heuristicMultiPage({ prompt: parsed.prompt, pageCount, viewportMode });
+
+    if (!this.useRealLLM) {
+      const fallback = buildFallback();
+      this.metrics.recordAi("multi", "mock", performance.now() - started);
+      return { ...fallback, source: "heuristic" };
+    }
+
+    const system = buildMultiPageSystemPrompt({
+      availableTypes: knownComponentTypes,
+      pageCount,
+      viewport,
+      themeName: "neutral",
+    });
+    const user = buildMultiPageUserPrompt(parsed.prompt);
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const usage: AiUsage = {};
+
+    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
+      attempts += 1;
+      try {
+        const result = await this.openAI.chat(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { jsonMode: true, maxTokens: 6000, temperature: 0.4 },
+        );
+        usage.promptTokens =
+          (usage.promptTokens ?? 0) + (result.usage?.promptTokens ?? 0);
+        usage.completionTokens =
+          (usage.completionTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+        const response = multiPageResponseSchema.parse(
+          JSON.parse(extractJson(result.text)),
+        );
+
+        const theme = response.pages[0].document.theme;
+        const usedSlugs = new Set<string>();
+        const pages: GeneratedPage[] = response.pages.map((page, index) => {
+          let slug = page.slug;
+          if (usedSlugs.has(slug)) slug = `${slug}-${index + 1}`;
+          while (usedSlugs.has(slug)) slug = `${slug}-${index + 1}`;
+          usedSlugs.add(slug);
+
+          ensureIdsUnique(page.document);
+          page.document.pageId = createId("page");
+          page.document.name = page.name;
+          page.document.theme = { ...theme };
+          page.document.viewport = viewport;
+          return { name: page.name, slug, document: page.document };
+        });
+
+        this.metrics.recordAi(
+          "multi",
+          "ok",
+          performance.now() - started,
+          usage,
+          attempts,
+        );
+        return {
+          pages,
+          theme,
+          summary: response.summary,
+          source: "ai",
+          model: result.model,
+        };
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    this.metrics.recordAi(
+      "multi",
+      "fallback",
+      performance.now() - started,
+      usage,
+      attempts,
+    );
+    const fallback = buildFallback();
+    return {
+      ...fallback,
+      summary: `⚠️ AI không trả về bộ trang hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng bộ dựng cục bộ. ${fallback.summary}`,
+      source: "heuristic",
     };
   }
 

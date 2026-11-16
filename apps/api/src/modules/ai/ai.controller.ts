@@ -25,6 +25,8 @@ import type {
   UrlToUiResult,
   DesignReferenceRequestBody,
   DesignReferenceResult,
+  MultiPageRequestBody,
+  MultiPageResult,
 } from "@ai-mockup-studio/shared-types";
 import { AiRateLimitGuard } from "../../common/rate-limit.guard";
 import { AiService } from "./ai.service";
@@ -98,5 +100,11 @@ export class AiController {
     @Body() body: DesignReferenceRequestBody,
   ): Promise<DesignReferenceResult> {
     return this.ai.designReference(body);
+  }
+
+  /** Multi-page generation: one prompt → linked pages with a shared theme. */
+  @Post("multi-page")
+  async multiPage(@Body() body: MultiPageRequestBody): Promise<MultiPageResult> {
+    return this.ai.generateMultiPage(body);
   }
 }

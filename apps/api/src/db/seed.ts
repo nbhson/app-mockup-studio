@@ -3,7 +3,7 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db, pool } from "./index";
-import { users, projects, documents, versions } from "./schema";
+import { users, projects, documents, pages, versions } from "./schema";
 import { buildSampleDashboard } from "../sample-documents";
 
 async function main() {
@@ -34,6 +34,14 @@ async function main() {
     schema: doc as unknown as object,
   }).returning();
 
+  const [page] = await db.insert(pages).values({
+    projectId: project.id,
+    name: doc.name?.trim() || "Home",
+    slug: "home",
+    position: 0,
+    documentId: document.id,
+  }).returning();
+
   await db.insert(versions).values({
     documentId: document.id,
     snapshot: doc as unknown as object,
@@ -42,7 +50,7 @@ async function main() {
   });
 
   await db.update(projects)
-    .set({ currentPageId: doc.pageId })
+    .set({ currentPageId: page.id })
     .where(eq(projects.id, project.id));
 
   console.log(`Seed ok. Project id: ${project.id}`);

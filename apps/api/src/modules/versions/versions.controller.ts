@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
 } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import type {
@@ -13,7 +14,7 @@ import type {
 } from "@ai-mockup-studio/shared-types";
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
-import { documents, projects, versions } from "../../db/schema";
+import { documents, pages, projects, versions } from "../../db/schema";
 
 /**
  * Version history (plan/12 GĐ 5.2).
@@ -27,8 +28,24 @@ export class VersionsController {
   constructor(private readonly db: DbService) {}
 
   @Get()
-  async list(@Param("projectId") projectId: string): Promise<VersionListResponse> {
+  async list(
+    @Param("projectId") projectId: string,
+    @Query("pageId") pageId?: string,
+  ): Promise<VersionListResponse> {
     await this.assertProject(projectId);
+
+    // History is per page: the query string carries a page row id, so resolve
+    // it to the document that page owns before filtering snapshots.
+    let documentId: string | undefined;
+    if (pageId) {
+      const [page] = await this.db.client
+        .select({ documentId: pages.documentId })
+        .from(pages)
+        .where(and(eq(pages.id, pageId), eq(pages.projectId, projectId)))
+        .limit(1);
+      if (!page) throw new NotFoundException(`Trang ${pageId} không tồn tại`);
+      documentId = page.documentId;
+    }
 
     const rows = await this.db.client
       .select({
@@ -38,7 +55,11 @@ export class VersionsController {
       })
       .from(versions)
       .innerJoin(documents, eq(versions.documentId, documents.id))
-      .where(eq(documents.projectId, projectId))
+      .where(
+        documentId
+          ? and(eq(documents.projectId, projectId), eq(documents.id, documentId))
+          : eq(documents.projectId, projectId),
+      )
       .orderBy(desc(versions.createdAt))
       .limit(50);
 
@@ -77,7 +98,7 @@ export class VersionsController {
     const [current] = await this.db.client
       .select()
       .from(documents)
-      .where(eq(documents.projectId, projectId))
+      .where(eq(documents.id, version.documentId))
       .limit(1);
 
     if (current) {
@@ -99,7 +120,7 @@ export class VersionsController {
               schemaVersion: snapshot.schemaVersion,
               updatedAt: new Date(),
             })
-            .where(eq(documents.projectId, projectId))
+            .where(eq(documents.id, current.id))
             .returning()
         )[0]
       : (
@@ -113,14 +134,20 @@ export class VersionsController {
             .returning()
         )[0];
 
+    const [page] = await this.db.client
+      .select()
+      .from(pages)
+      .where(eq(pages.documentId, saved.id))
+      .limit(1);
+
     await this.db.client
       .update(projects)
-      .set({ currentPageId: snapshot.pageId, updatedAt: new Date() })
+      .set({ currentPageId: page?.id ?? null, updatedAt: new Date() })
       .where(eq(projects.id, projectId));
 
     return {
       projectId,
-      currentPageId: snapshot.pageId,
+      currentPageId: page?.id ?? "",
       document: saved.schema as unknown as UiDocument,
       updatedAt: saved.updatedAt.toISOString(),
     };
@@ -142,6 +169,7 @@ export class VersionsController {
         note: versions.note,
         createdAt: versions.createdAt,
         snapshot: versions.snapshot,
+        documentId: versions.documentId,
       })
       .from(versions)
       .innerJoin(documents, eq(versions.documentId, documents.id))

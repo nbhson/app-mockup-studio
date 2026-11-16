@@ -153,6 +153,40 @@ export const saveDocumentSchema = z.object({
   baseVersion: z.string().nullable().optional(),
 });
 
+// --- Pages (plan/07 3.4) ---------------------------------------------------
+
+const pageSlugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug chỉ gồm chữ thường, số và dấu gạch ngang");
+
+export const createPageSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  slug: pageSlugSchema.optional(),
+  document: uiDocumentSchema.optional(),
+});
+
+export const updatePageSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  slug: pageSlugSchema.optional(),
+  position: z.number().int().min(0).max(999).optional(),
+});
+
+export const replacePagesSchema = z.object({
+  pages: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(120),
+        slug: pageSlugSchema.optional(),
+        document: uiDocumentSchema,
+      }),
+    )
+    .min(1)
+    .max(8),
+});
+
 export const generateRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(4000),
   model: z.string().nullable().optional(),
@@ -300,6 +334,28 @@ export const designReferenceResponseSchema = z.object({
     .max(12),
   fontFamily: z.string().trim().min(1).max(120).optional(),
   radius: z.number().min(0).max(40).optional(),
+});
+
+// --- AI multi-page (plan/07 3.4) ------------------------------------------
+
+export const multiPageRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  pageCount: z.number().int().min(2).max(5).optional(),
+  viewportMode: z.enum(["desktop", "tablet", "mobile"]).optional(),
+});
+
+export const multiPageResponseSchema = z.object({
+  summary: z.string().trim().min(1).max(1000),
+  pages: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(120),
+        slug: pageSlugSchema,
+        document: uiDocumentSchema,
+      }),
+    )
+    .min(2)
+    .max(5),
 });
 
 // --- Assets ----------------------------------------------------------------

@@ -199,6 +199,161 @@ async function main() {
   await request("GET", `/projects/${isolation.id}/versions/${v1.id}`, { status: 404 });
   check("version from another project is not accessible", true);
 
+  // --- Multi-page (plan/07 3.4) -------------------------------------------
+  await request("POST", `/projects/${isolation.id}/document`, {
+    body: { document: makeDoc("Isolation home") },
+  });
+  const homePages = (await request("GET", `/projects/${isolation.id}/pages`)).payload;
+  check(
+    "pages list wraps the project in a home page",
+    homePages.pages.length === 1 && homePages.currentPageId === homePages.pages[0].id,
+    JSON.stringify(homePages),
+  );
+  const homePage = homePages.pages[0];
+
+  const about = (
+    await request("POST", `/projects/${isolation.id}/pages`, {
+      body: { name: "Giới thiệu", document: makeDoc("About page") },
+    })
+  ).payload;
+  check(
+    "create page with its own document",
+    about.page.slug === "gioi-thieu" && about.document?.name === "About page",
+    JSON.stringify(about.page),
+  );
+  check(
+    "page detail returns the page document",
+    (await request("GET", `/projects/${isolation.id}/pages/${about.page.id}`)).payload.document
+      ?.name === "About page",
+  );
+
+  const activated = (
+    await request("POST", `/projects/${isolation.id}/pages/${about.page.id}/activate`)
+  ).payload;
+  check("activate page", activated.currentPageId === about.page.id);
+  check(
+    "active page drives the legacy document endpoint",
+    (await request("GET", `/projects/${isolation.id}/document`)).payload.document?.name ===
+      "About page",
+  );
+
+  await request("POST", `/projects/${isolation.id}/pages/${about.page.id}`, {
+    body: { document: makeDoc("About v2") },
+  });
+  const pageVersions = (
+    await request("GET", `/projects/${isolation.id}/versions?pageId=${about.page.id}`)
+  ).payload.versions;
+  const homeVersions = (
+    await request("GET", `/projects/${isolation.id}/versions?pageId=${homePage.id}`)
+  ).payload.versions;
+  check("page save snapshots the previous document", pageVersions.length >= 1);
+  check(
+    "version history filters by page",
+    pageVersions.every((entry) => !homeVersions.some((other) => other.id === entry.id)),
+    JSON.stringify({ pageVersions, homeVersions }),
+  );
+  const pageVersionDetail = (
+    await request("GET", `/projects/${isolation.id}/versions/${pageVersions[0].id}`)
+  ).payload;
+  check(
+    "page version detail contains that page's snapshot",
+    pageVersionDetail.document?.name === "About page",
+  );
+
+  const renamedPage = (
+    await request("PATCH", `/projects/${isolation.id}/pages/${about.page.id}`, {
+      body: { name: "Thông tin" },
+    })
+  ).payload;
+  check(
+    "rename page updates its slug",
+    renamedPage.page.name === "Thông tin" && renamedPage.page.slug === "thong-tin",
+    JSON.stringify(renamedPage.page),
+  );
+  const sameName = (
+    await request("POST", `/projects/${isolation.id}/pages`, {
+      body: { name: "Thông tin", document: makeDoc("Duplicate name") },
+    })
+  ).payload;
+  check(
+    "page slugs are unique inside a project",
+    sameName.page.slug === "thong-tin-2",
+    sameName.page.slug,
+  );
+
+  const multi = (
+    await request("POST", "/ai/multi-page", {
+      body: {
+        prompt: "Landing page cho sản phẩm SaaS quản lý dự án",
+        pageCount: 3,
+      },
+    })
+  ).payload;
+  check("AI multi-page works offline", multi.source === "heuristic");
+  check(
+    "AI multi-page returns linked, valid pages",
+    multi.pages.length === 3 &&
+      new Set(multi.pages.map((page) => page.slug)).size === 3 &&
+      multi.pages.every((page) => uiDocumentSchema.safeParse(page.document).success),
+  );
+  check(
+    "AI multi-page shares one theme across pages",
+    multi.pages.every(
+      (page) => JSON.stringify(page.document.theme) === JSON.stringify(multi.theme),
+    ),
+  );
+
+  const replaced = (
+    await request("PUT", `/projects/${isolation.id}/pages`, {
+      body: { pages: multi.pages },
+    })
+  ).payload;
+  check(
+    "replace pages atomically",
+    replaced.pages.length === 3 && replaced.currentPageId === replaced.pages[0].id,
+    JSON.stringify(replaced),
+  );
+  check(
+    "replace switches the active document",
+    (await request("GET", `/projects/${isolation.id}/document`)).payload.document?.name ===
+      multi.pages[0].name,
+  );
+
+  const afterDelete = (
+    await request("DELETE", `/projects/${isolation.id}/pages/${replaced.pages[1].id}`)
+  ).payload;
+  check(
+    "delete page keeps the active page",
+    afterDelete.pages.length === 2 && afterDelete.currentPageId === replaced.currentPageId,
+    JSON.stringify(afterDelete),
+  );
+
+  const pageCopy = (await request("POST", `/projects/${isolation.id}/duplicate`)).payload;
+  const copiedPages = (await request("GET", `/projects/${pageCopy.id}/pages`)).payload;
+  check(
+    "duplicate copies all pages",
+    copiedPages.pages.length === 2 &&
+      copiedPages.pages.map((page) => page.name).join(",") ===
+        afterDelete.pages.map((page) => page.name).join(","),
+    JSON.stringify(copiedPages),
+  );
+  const copiedPageDetail = (
+    await request("GET", `/projects/${pageCopy.id}/pages/${copiedPages.pages[1].id}`)
+  ).payload;
+  check(
+    "copied pages keep their own documents",
+    copiedPageDetail.document?.name === copiedPages.pages[1].name,
+  );
+
+  const beforeLast = (
+    await request("DELETE", `/projects/${isolation.id}/pages/${afterDelete.pages[1].id}`)
+  ).payload;
+  check("delete page down to one", beforeLast.pages.length === 1);
+  await request("DELETE", `/projects/${isolation.id}/pages/${beforeLast.pages[0].id}`, {
+    status: 400,
+  });
+  check("cannot delete the last page", true);
+
   // --- Assets --------------------------------------------------------------
   const upload = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -630,20 +785,23 @@ async function main() {
   check("metrics recorded AI image-to-ui", metrics.ai.image.requests >= 1);
   check("metrics recorded AI url-to-ui", metrics.ai.url.requests >= 2);
   check("metrics recorded AI design-reference", metrics.ai.design.requests >= 1);
+  check("metrics recorded AI multi-page", metrics.ai.multi.requests >= 1);
   check(
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),
   );
 
   // --- Cleanup -------------------------------------------------------------
-  for (const id of [project.id, isolation.id, copy.id]) {
+  for (const id of [project.id, isolation.id, pageCopy.id, copy.id]) {
     await request("DELETE", `/projects/${id}`);
   }
   await request("GET", `/projects/${project.id}`, { status: 404 });
   const remaining = (await request("GET", "/projects")).payload;
   check(
     "delete projects",
-    ![project.id, isolation.id, copy.id].some((id) => remaining.some((p) => p.id === id)),
+    ![project.id, isolation.id, pageCopy.id, copy.id].some((id) =>
+      remaining.some((p) => p.id === id),
+    ),
   );
 
   console.log(`\nRESULT: PASS — ${checks.length} checks`);

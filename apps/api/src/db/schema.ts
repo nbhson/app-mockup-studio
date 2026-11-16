@@ -32,12 +32,28 @@ export const projects = pgTable("projects", {
 
 export const documents = pgTable("documents", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().unique().references(() => projects.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   schemaVersion: text("schema_version").notNull().default("0.1.0"),
   schema: jsonb("schema").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("documents_project_idx").on(t.projectId)]);
+
+// plan/07 3.4 / plan/10 — a project can hold many pages; each page owns exactly
+// one document. `projects.currentPageId` points at a page row.
+export const pages = pgTable("pages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  position: integer("position").notNull().default(0),
+  documentId: text("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("pages_project_idx").on(t.projectId),
+  uniqueIndex("pages_project_slug_key").on(t.projectId, t.slug),
+]);
 
 export const versions = pgTable("versions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

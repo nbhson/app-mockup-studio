@@ -10,6 +10,10 @@ import { findNode, findParent } from "@ai-mockup-studio/ui-schema";
 import { applyPatchBatch } from "@ai-mockup-studio/ui-renderer";
 import type {
   DocumentResponse,
+  PageDetailResponse,
+  PageListResponse,
+  PageSummaryDto,
+  ReplacePagesInput,
   VersionListResponse,
   VersionSummaryDto,
 } from "@ai-mockup-studio/shared-types";
@@ -63,6 +67,16 @@ export const useDocumentStore = defineStore("document", () => {
   const versionsLoading = ref(false);
   const versionsError = ref<string | null>(null);
   const isRestoring = ref(false);
+
+  // Multi-page (plan/07 3.4): every project owns at least one page; the active
+  // page's document is the one shown in the canvas.
+  const pages = ref<PageSummaryDto[]>([]);
+  const currentPageId = ref<string | null>(null);
+  const pagesLoading = ref(false);
+  const pagesError = ref<string | null>(null);
+  const currentPage = computed(
+    () => pages.value.find((page) => page.id === currentPageId.value) ?? null,
+  );
 
   const past = ref<CommandEntry[]>([]);
   const future = ref<CommandEntry[]>([]);
@@ -246,22 +260,194 @@ export const useDocumentStore = defineStore("document", () => {
     isLoading.value = true;
     try {
       projectId.value = project;
+      // Load pages first: the endpoint lazily wraps legacy single-document
+      // projects in a home page, so the document request below is race-free.
+      const pageList = await api.get<PageListResponse>(
+        `/projects/${project}/pages`,
+      );
+      pages.value = pageList.pages;
+      currentPageId.value = pageList.currentPageId;
+
       const res = await api.get<{
+        currentPageId: string;
         document: UiDocument | null;
         updatedAt: string;
       }>(`/projects/${project}/document`);
       document.value = res.document;
+      if (res.currentPageId) currentPageId.value = res.currentPageId;
+      if (
+        res.currentPageId &&
+        !pages.value.some((page) => page.id === res.currentPageId)
+      ) {
+        await loadPages(project);
+      }
       clearSelection();
       past.value = [];
       future.value = [];
       lastSavedAt.value = res.document ? new Date(res.updatedAt) : null;
       isDirty.value = false;
       saveError.value = null;
+      pagesError.value = null;
       versions.value = [];
       versionsError.value = null;
       editRevision = 0;
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  /** Refresh the page list and the project's active page id. */
+  async function loadPages(
+    project = projectId.value,
+  ): Promise<PageListResponse | null> {
+    if (!project) return null;
+    pagesLoading.value = true;
+    pagesError.value = null;
+    try {
+      const res = await api.get<PageListResponse>(`/projects/${project}/pages`);
+      pages.value = res.pages;
+      currentPageId.value = res.currentPageId;
+      return res;
+    } catch (e) {
+      pagesError.value =
+        e instanceof Error ? e.message : "Không tải được danh sách trang";
+      throw e;
+    } finally {
+      pagesLoading.value = false;
+    }
+  }
+
+  /** Replace editor state with a page's saved document (history reset). */
+  function applyPageDocument(res: PageDetailResponse) {
+    document.value = res.document;
+    currentPageId.value = res.page.id;
+    clearSelection();
+    past.value = [];
+    future.value = [];
+    isDirty.value = false;
+    saveError.value = null;
+    lastSavedAt.value = new Date(res.page.updatedAt);
+    versions.value = [];
+    versionsError.value = null;
+    editRevision = 0;
+  }
+
+  /** Switch the active page, flushing unsaved edits to the current one first. */
+  async function switchPage(pageId: string) {
+    if (!projectId.value || pageId === currentPageId.value) return;
+    cancelAutosave();
+    if (isDirty.value) {
+      await save();
+      if (isDirty.value) {
+        throw new Error(saveError.value ?? "Không lưu được trang hiện tại");
+      }
+    }
+    pagesLoading.value = true;
+    pagesError.value = null;
+    try {
+      const list = await api.post<PageListResponse>(
+        `/projects/${projectId.value}/pages/${pageId}/activate`,
+      );
+      pages.value = list.pages;
+      currentPageId.value = list.currentPageId;
+      const detail = await api.get<PageDetailResponse>(
+        `/projects/${projectId.value}/pages/${pageId}`,
+      );
+      applyPageDocument(detail);
+    } catch (e) {
+      pagesError.value =
+        e instanceof Error ? e.message : "Không chuyển được trang";
+      throw e;
+    } finally {
+      pagesLoading.value = false;
+    }
+  }
+
+  /** Create a page (optionally with a document) and open it. */
+  async function createPage(
+    name: string,
+    newDocument?: UiDocument,
+  ): Promise<PageSummaryDto> {
+    if (!projectId.value) throw new Error("Chưa chọn dự án");
+    const created = await api.post<PageDetailResponse>(
+      `/projects/${projectId.value}/pages`,
+      { name, ...(newDocument ? { document: newDocument } : {}) },
+    );
+    await loadPages();
+    await switchPage(created.page.id);
+    return created.page;
+  }
+
+  async function renamePage(pageId: string, name: string): Promise<PageSummaryDto> {
+    if (!projectId.value) throw new Error("Chưa chọn dự án");
+    const updated = await api.patch<PageDetailResponse>(
+      `/projects/${projectId.value}/pages/${pageId}`,
+      { name },
+    );
+    pages.value = pages.value.map((page) =>
+      page.id === pageId ? updated.page : page,
+    );
+    return updated.page;
+  }
+
+  /** Delete a page. Deleting the active page opens the next remaining one. */
+  async function deletePage(pageId: string): Promise<void> {
+    if (!projectId.value) return;
+    const wasActive = pageId === currentPageId.value;
+    const list = await api.delete<PageListResponse>(
+      `/projects/${projectId.value}/pages/${pageId}`,
+    );
+    pages.value = list.pages;
+    currentPageId.value = list.currentPageId;
+    if (!wasActive) return;
+
+    if (list.currentPageId) {
+      const detail = await api.get<PageDetailResponse>(
+        `/projects/${projectId.value}/pages/${list.currentPageId}`,
+      );
+      applyPageDocument(detail);
+    } else {
+      document.value = null;
+      clearSelection();
+      past.value = [];
+      future.value = [];
+      isDirty.value = false;
+      lastSavedAt.value = null;
+    }
+  }
+
+  /** Atomically replace every page (AI multi-page generation). */
+  async function replacePages(input: ReplacePagesInput): Promise<PageListResponse> {
+    if (!projectId.value) throw new Error("Chưa chọn dự án");
+    cancelAutosave();
+    pagesLoading.value = true;
+    pagesError.value = null;
+    try {
+      const list = await api.put<PageListResponse>(
+        `/projects/${projectId.value}/pages`,
+        input,
+      );
+      pages.value = list.pages;
+      currentPageId.value = list.currentPageId;
+      if (list.currentPageId) {
+        const detail = await api.get<PageDetailResponse>(
+          `/projects/${projectId.value}/pages/${list.currentPageId}`,
+        );
+        applyPageDocument(detail);
+      } else {
+        document.value = null;
+        clearSelection();
+        past.value = [];
+        future.value = [];
+        isDirty.value = false;
+      }
+      return list;
+    } catch (e) {
+      pagesError.value =
+        e instanceof Error ? e.message : "Không thay được danh sách trang";
+      throw e;
+    } finally {
+      pagesLoading.value = false;
     }
   }
 
@@ -331,9 +517,15 @@ export const useDocumentStore = defineStore("document", () => {
     saveError.value = null;
     const rev = editRevision;
     try {
-      await api.post(`/projects/${projectId.value}/document`, {
-        document: document.value,
-      });
+      const res = await api.post<DocumentResponse>(
+        `/projects/${projectId.value}/document`,
+        { document: document.value },
+      );
+      // The first save of a brand-new project creates its home page.
+      if (res.currentPageId && res.currentPageId !== currentPageId.value) {
+        currentPageId.value = res.currentPageId;
+        await loadPages().catch(() => undefined);
+      }
       lastSavedAt.value = new Date();
       if (editRevision === rev) {
         isDirty.value = false;
@@ -355,8 +547,11 @@ export const useDocumentStore = defineStore("document", () => {
     versionsLoading.value = true;
     versionsError.value = null;
     try {
+      const query = currentPageId.value
+        ? `?pageId=${encodeURIComponent(currentPageId.value)}`
+        : "";
       const res = await api.get<VersionListResponse>(
-        `/projects/${projectId.value}/versions`,
+        `/projects/${projectId.value}/versions${query}`,
       );
       versions.value = res.versions;
     } catch (e) {
@@ -385,12 +580,14 @@ export const useDocumentStore = defineStore("document", () => {
         `/projects/${projectId.value}/versions/${versionId}/restore`,
       );
       document.value = res.document;
+      if (res.currentPageId) currentPageId.value = res.currentPageId;
       clearSelection();
       past.value = [];
       future.value = [];
       isDirty.value = false;
       lastSavedAt.value = new Date(res.updatedAt);
       editRevision += 1;
+      await loadPages().catch(() => undefined);
       await loadVersions();
     } catch (e) {
       versionsError.value =
@@ -419,6 +616,17 @@ export const useDocumentStore = defineStore("document", () => {
     versionsLoading,
     versionsError,
     isRestoring,
+    pages,
+    currentPageId,
+    currentPage,
+    pagesLoading,
+    pagesError,
+    loadPages,
+    switchPage,
+    createPage,
+    renamePage,
+    deletePage,
+    replacePages,
     canUndo,
     canRedo,
     selectedId,

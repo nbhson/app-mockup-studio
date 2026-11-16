@@ -15,6 +15,13 @@
       "when": 1794388806910,
       "tag": "0001_nasty_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794724289444,
+      "tag": "0002_small_micromacro",
+      "breakpoints": true
     }
   ]
 }
