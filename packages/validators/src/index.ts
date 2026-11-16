@@ -378,6 +378,30 @@ export const createShareSchema = z
     }
   });
 
+// --- Comments (plan/07 4.6) ------------------------------------------------
+
+export const commentStatusSchema = z.enum(["open", "resolved"]);
+
+const commentAuthorSchema = z.string().trim().min(1).max(80).optional();
+const commentBodySchema = z.string().trim().min(1).max(4000);
+
+export const createCommentSchema = z.object({
+  pageId: z.string().trim().min(1).max(120),
+  nodeId: z.string().trim().min(1).max(120).optional(),
+  nodeLabel: z.string().trim().min(1).max(200).optional(),
+  body: commentBodySchema,
+  authorName: commentAuthorSchema,
+});
+
+export const replyCommentSchema = z.object({
+  body: commentBodySchema,
+  authorName: commentAuthorSchema,
+});
+
+export const updateCommentThreadSchema = z.object({
+  status: commentStatusSchema,
+});
+
 // --- Assets ----------------------------------------------------------------
 
 export const ASSET_MIME_TYPES = [

@@ -73,6 +73,32 @@ export const shares = pgTable("shares", {
   index("shares_project_idx").on(t.projectId),
 ]);
 
+// plan/07 4.6 — canvas comments. A thread is anchored to a page (optionally a
+// specific node) and holds a conversation; resolving is a soft status change so
+// the history stays available for review.
+export const commentThreads = pgTable("comment_threads", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+  nodeId: text("node_id"),
+  nodeLabel: text("node_label"),
+  status: text("status").notNull().default("open"), // open | resolved
+  createdBy: text("created_by").notNull().default("Demo User"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("comment_threads_project_idx").on(t.projectId),
+  index("comment_threads_page_idx").on(t.pageId),
+]);
+
+export const commentMessages = pgTable("comment_messages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  threadId: text("thread_id").notNull().references(() => commentThreads.id, { onDelete: "cascade" }),
+  authorName: text("author_name").notNull().default("Demo User"),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("comment_messages_thread_idx").on(t.threadId)]);
+
 export const versions = pgTable("versions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   documentId: text("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
@@ -121,3 +147,5 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type DocumentRow = typeof documents.$inferSelect;
 export type AssetRow = typeof assets.$inferSelect;
 export type ShareRow = typeof shares.$inferSelect;
+export type CommentThreadRow = typeof commentThreads.$inferSelect;
+export type CommentMessageRow = typeof commentMessages.$inferSelect;

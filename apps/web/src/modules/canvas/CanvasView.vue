@@ -25,6 +25,7 @@ import UrlToUiDialog from "../analysis/UrlToUiDialog.vue";
 import DesignReferenceDialog from "../analysis/DesignReferenceDialog.vue";
 import MultiPageDialog from "../pages/MultiPageDialog.vue";
 import ShareDialog from "../share/ShareDialog.vue";
+import CommentsDialog from "../comments/CommentsDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -46,6 +47,7 @@ const showUrlToUi = ref(false);
 const showDesignRef = ref(false);
 const showMultiPage = ref(false);
 const showShare = ref(false);
+const showComments = ref(false);
 const pageBusy = ref(false);
 const pageError = ref<string | null>(null);
 
@@ -863,6 +865,14 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="Bình luận và review theo element hoặc toàn trang"
+          @click="showComments = true"
+        >
+          💬 Bình luận
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="Xuất code HTML / React / Vue"
           @click="showCode = true"
         >
@@ -1126,5 +1136,6 @@ onBeforeUnmount(() => {
     <DesignReferenceDialog :open="showDesignRef" @close="showDesignRef = false" />
     <MultiPageDialog :open="showMultiPage" @close="showMultiPage = false" />
     <ShareDialog :open="showShare" @close="showShare = false" />
+    <CommentsDialog :open="showComments" @close="showComments = false" />
   </div>
 </template>

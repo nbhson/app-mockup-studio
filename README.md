@@ -104,23 +104,24 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   case against API đang chạy; kiểm tra schema, id trùng, viewport, markup lạ,
   intent coverage, fallback rate và lưu report JSON nếu đặt `EVAL_OUT`.
   Với mock provider, kết quả là baseline cấu trúc; điền key để đo LLM thật.
-- `pnpm --filter @ai-mockup-studio/api e2e:api` — 110 check HTTP end-to-end:
+- `pnpm --filter @ai-mockup-studio/api e2e:api` — 120 check HTTP end-to-end:
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, multi-page CRUD/activate/replace/delete + copy pages,
   public/private share links (password, expiry 410, revoke, cascade),
-  asset validation/raw bytes, copy assets khi duplicate,
+  comment threads (element/page anchor, reply, resolve, status filter,
+  cross-project isolation), asset validation/raw bytes, copy assets khi duplicate,
   hidden/locked layer flags, responsive overrides, AI generate/edit/critique/
   dummy-data/responsive/recommend-components/image-to-ui/url-to-ui (SSRF +
   redirect)/design-reference/multi-page, metrics.
-- `pnpm test` — 167 unit test (API 106, renderer 28, web 33) cho store selection,
+- `pnpm test` — 177 unit test (API 110, renderer 28, web 39) cho store selection,
   patch/clone, group move, layer lock, diff version, multi-page store,
   share token/password/expiry validation,
   metrics, rate limit, validation, responsive resolution & optimization,
   accessibility & design-consistency analysis, heuristic design critique,
   dummy-data generation, component recommendation, image-to-UI fallback,
   URL parsing & SSRF guards, palette extraction & theme mapping, multi-page
-  generation, code export, design-to-code bundle, thu thập asset ảnh và
-  performance guard.
+  generation, code export, design-to-code bundle, comment DTO/anchor helpers,
+  thu thập asset ảnh và performance guard.
 - Performance guard: test `601 nodes` trong `packages/ui-renderer` (resolve +
   export HTML) và đã đo UI thật: render 601 node ~0.9 s, selection ~16 ms.
 
@@ -165,6 +166,9 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   mật khẩu scrypt), thời hạn 1–365 ngày, copy/mở/thu hồi; viewer read-only
   `/share/:token` với chuyển trang và desktop/tablet/mobile; link hết hạn trả 410,
   link thu hồi 404
+- [x] Commenting & review: thread gắn vào element đang chọn hoặc toàn trang,
+  hội thoại nhiều lượt, đánh dấu resolved/mở lại, lọc open/resolved, chọn lại
+  element trên canvas từ thread; API scoped theo project + page
 - [x] Responsive preview desktop/tablet/mobile + override style theo breakpoint
   (inspector & resize ghi vào `responsive.tablet/mobile`, desktop giữ nguyên)
 - [x] Version history: snapshot tự động (throttle 5 phút), xem, so sánh và khôi phục
@@ -182,7 +186,7 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   (`REDIS_URL`, fallback an toàn về in-memory khi Redis mất)
 - [x] AI evaluation: test set 8 prompt + 3 edit case, metric cấu trúc/intent/fallback
 - [x] Performance: 601 node render/selection ổn định, guard test trong CI
-- [x] CI workflow (build + typecheck + test + API smoke 110 check + AI eval với Postgres)
+- [x] CI workflow (build + typecheck + test + API smoke 120 check + AI eval với Postgres)
 - [x] Runbook deploy production (env, migrate, systemd, Nginx, health, rollback)
 - [ ] Deploy/rollback thực tế lên môi trường production (cần hạ tầng/host thật)
 

@@ -5,8 +5,10 @@
 // Exercises the full HTTP surface against a running API + seeded Postgres:
 // projects CRUD/duplicate, documents save/load, version history + reversible
 // restore, cross-project isolation, public/private share links (password,
-// expiry, revoke), assets validation/raw bytes/delete and asset copying on
-// duplicate, hidden/locked flags, AI generate/edit and observability counters.
+// expiry, revoke), canvas comment threads (element anchors, replies, resolve,
+// status filters, cross-project isolation), assets validation/raw bytes/delete
+// and asset copying on duplicate, hidden/locked flags, AI generate/edit and
+// observability counters.
 //
 // Usage: API_URL=http://localhost:3000/api pnpm --filter @ai-mockup-studio/api e2e:api
 // Requires the demo user from `pnpm db:seed` (CI seeds before starting the API).
@@ -496,6 +498,127 @@ async function main() {
     status: 400,
   });
   check("share expiry is validated", badExpiry.status === 400);
+
+  // --- Comments (plan/07 4.6) ---------------------------------------------
+  const commentPages = (await request("GET", `/projects/${isolation.id}/pages`)).payload;
+  const commentPage = commentPages.pages[0];
+  const emptyComments = (
+    await request(
+      "GET",
+      `/projects/${isolation.id}/comments?pageId=${commentPage.id}`,
+    )
+  ).payload;
+  check("comment list starts empty", emptyComments.threads.length === 0);
+
+  const createdComment = (
+    await request("POST", `/projects/${isolation.id}/comments`, {
+      body: {
+        pageId: commentPage.id,
+        nodeId: "title",
+        nodeLabel: "Tiêu đề",
+        body: "Đổi tiêu đề này rõ hơn",
+        authorName: "Reviewer E2E",
+      },
+    })
+  ).payload;
+  check(
+    "create element comment thread",
+    createdComment.pageId === commentPage.id &&
+      createdComment.nodeId === "title" &&
+      createdComment.nodeLabel === "Tiêu đề" &&
+      createdComment.status === "open" &&
+      createdComment.createdBy === "Reviewer E2E" &&
+      createdComment.messages.length === 1 &&
+      createdComment.messages[0].body === "Đổi tiêu đề này rõ hơn",
+    JSON.stringify(createdComment),
+  );
+
+  const listedComments = (
+    await request(
+      "GET",
+      `/projects/${isolation.id}/comments?pageId=${commentPage.id}`,
+    )
+  ).payload;
+  check(
+    "comment thread is listed for the page",
+    listedComments.pageId === commentPage.id &&
+      listedComments.threads.some((thread) => thread.id === createdComment.id),
+    JSON.stringify(listedComments.threads?.map((thread) => thread.id)),
+  );
+
+  const repliedComment = (
+    await request("POST", `/projects/${isolation.id}/comments/${createdComment.id}/messages`, {
+      body: { body: "Đã sửa ở bản mới", authorName: "Designer E2E" },
+    })
+  ).payload;
+  check(
+    "reply appends to the same thread",
+    repliedComment.id === createdComment.id &&
+      repliedComment.messages.length === 2 &&
+      repliedComment.messages[1].authorName === "Designer E2E" &&
+      repliedComment.messages[1].body === "Đã sửa ở bản mới",
+    JSON.stringify(repliedComment.messages),
+  );
+
+  const resolvedComment = (
+    await request("PATCH", `/projects/${isolation.id}/comments/${createdComment.id}`, {
+      body: { status: "resolved" },
+    })
+  ).payload;
+  check(
+    "resolve marks the thread as done",
+    resolvedComment.status === "resolved" && resolvedComment.messages.length === 2,
+    JSON.stringify(resolvedComment),
+  );
+
+  const openComments = (
+    await request(
+      "GET",
+      `/projects/${isolation.id}/comments?pageId=${commentPage.id}&status=open`,
+    )
+  ).payload;
+  const resolvedComments = (
+    await request(
+      "GET",
+      `/projects/${isolation.id}/comments?pageId=${commentPage.id}&status=resolved`,
+    )
+  ).payload;
+  check(
+    "status filter separates open and resolved threads",
+    !openComments.threads.some((thread) => thread.id === createdComment.id) &&
+      resolvedComments.threads.some((thread) => thread.id === createdComment.id),
+  );
+
+  const pageComment = (
+    await request("POST", `/projects/${isolation.id}/comments`, {
+      body: { pageId: commentPage.id, body: "Nhìn chung ổn" },
+    })
+  ).payload;
+  check(
+    "page-level comment has no node anchor",
+    pageComment.nodeId === null && pageComment.nodeLabel === null,
+    JSON.stringify(pageComment),
+  );
+
+  const badComment = await request("POST", `/projects/${isolation.id}/comments`, {
+    body: { pageId: commentPage.id, body: "   " },
+    status: 400,
+  });
+  check("empty comment body is rejected", badComment.status === 400);
+
+  const crossProjectComment = await request(
+    "POST",
+    `/projects/${project.id}/comments`,
+    { body: { pageId: commentPage.id, body: "Sai dự án" }, status: 404 },
+  );
+  check("comment page must belong to the project", crossProjectComment.status === 404);
+
+  const crossProjectReply = await request(
+    "POST",
+    `/projects/${project.id}/comments/${createdComment.id}/messages`,
+    { body: { body: "Sai dự án" }, status: 404 },
+  );
+  check("cannot reply to another project's thread", crossProjectReply.status === 404);
 
   // --- Assets --------------------------------------------------------------
   const upload = (

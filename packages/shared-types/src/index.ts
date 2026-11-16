@@ -432,6 +432,54 @@ export interface PublicShareResponse {
   expiresAt: string | null;
 }
 
+// --- Comments (canvas review threads, plan/07 4.6) -------------------------
+
+export type CommentStatus = "open" | "resolved";
+
+export interface CommentMessageDto {
+  id: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface CommentThreadDto {
+  id: string;
+  projectId: string;
+  pageId: string;
+  /** Element id when the thread is anchored to a component; null = page-level. */
+  nodeId: string | null;
+  nodeLabel: string | null;
+  status: CommentStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: CommentMessageDto[];
+}
+
+export interface CommentListResponse {
+  projectId: string;
+  pageId: string | null;
+  threads: CommentThreadDto[];
+}
+
+export interface CreateCommentInput {
+  pageId: string;
+  nodeId?: string;
+  nodeLabel?: string;
+  body: string;
+  authorName?: string;
+}
+
+export interface ReplyCommentInput {
+  body: string;
+  authorName?: string;
+}
+
+export interface UpdateCommentThreadInput {
+  status: CommentStatus;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {
