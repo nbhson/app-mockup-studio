@@ -378,6 +378,24 @@ export const createShareSchema = z
     }
   });
 
+// --- Design systems (plan/07 4.8) ------------------------------------------
+
+export const createDesignSystemSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).optional(),
+  theme: themeSchema,
+});
+
+export const updateDesignSystemSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+  theme: themeSchema.optional(),
+});
+
+export const applyDesignSystemSchema = z.object({
+  designSystemId: z.string().trim().min(1).max(120).nullable(),
+});
+
 // --- Comments (plan/07 4.6) ------------------------------------------------
 
 export const commentStatusSchema = z.enum(["open", "resolved"]);

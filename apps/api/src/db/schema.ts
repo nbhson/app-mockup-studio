@@ -20,15 +20,33 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("users_email_key").on(t.email)]);
 
+// plan/07 4.8 — reusable custom design systems. Tokens use the same Theme shape
+// documents consume, so applying a system is a deterministic theme update.
+export const designSystems = pgTable("design_systems", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  description: text("description"),
+  theme: jsonb("theme").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("design_systems_name_key").on(t.name)]);
+
 export const projects = pgTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   description: text("description"),
   ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   currentPageId: text("current_page_id"),
+  /** Active custom design system (plan/07 4.8); null = document themes. */
+  designSystemId: text("design_system_id").references(() => designSystems.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("projects_owner_idx").on(t.ownerId)]);
+}, (t) => [
+  index("projects_owner_idx").on(t.ownerId),
+  index("projects_design_system_idx").on(t.designSystemId),
+]);
 
 export const documents = pgTable("documents", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -149,3 +167,4 @@ export type AssetRow = typeof assets.$inferSelect;
 export type ShareRow = typeof shares.$inferSelect;
 export type CommentThreadRow = typeof commentThreads.$inferSelect;
 export type CommentMessageRow = typeof commentMessages.$inferSelect;
+export type DesignSystemRow = typeof designSystems.$inferSelect;

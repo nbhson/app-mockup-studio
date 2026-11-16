@@ -16,6 +16,8 @@ export interface ProjectDto {
   id: string;
   name: string;
   description: string | null;
+  /** Active custom design system (plan/07 4.8), null when none is applied. */
+  designSystemId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -478,6 +480,46 @@ export interface ReplyCommentInput {
 
 export interface UpdateCommentThreadInput {
   status: CommentStatus;
+}
+
+// --- Design systems (custom token sets, plan/07 4.8) -----------------------
+
+export interface DesignSystemDto {
+  id: string;
+  name: string;
+  description: string | null;
+  theme: Theme;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesignSystemListResponse {
+  designSystems: DesignSystemDto[];
+}
+
+export interface CreateDesignSystemInput {
+  name: string;
+  description?: string;
+  theme: Theme;
+}
+
+export interface UpdateDesignSystemInput {
+  name?: string;
+  description?: string | null;
+  theme?: Theme;
+}
+
+export interface ApplyDesignSystemInput {
+  /** null detaches the project without changing its current document theme. */
+  designSystemId: string | null;
+}
+
+export interface ApplyDesignSystemResponse {
+  projectId: string;
+  designSystemId: string | null;
+  theme: Theme | null;
+  /** Number of page documents whose theme was rewritten. */
+  updatedPages: number;
 }
 
 // --- Health -----------------------------------------------------------------

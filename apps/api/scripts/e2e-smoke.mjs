@@ -6,7 +6,8 @@
 // projects CRUD/duplicate, documents save/load, version history + reversible
 // restore, cross-project isolation, public/private share links (password,
 // expiry, revoke), canvas comment threads (element anchors, replies, resolve,
-// status filters, cross-project isolation), assets validation/raw bytes/delete
+// status filters, cross-project isolation), custom design systems (token CRUD,
+// apply/switch/cascade delete), assets validation/raw bytes/delete
 // and asset copying on duplicate, hidden/locked flags, AI generate/edit and
 // observability counters.
 //
@@ -620,6 +621,210 @@ async function main() {
   );
   check("cannot reply to another project's thread", crossProjectReply.status === 404);
 
+  // --- Design systems (plan/07 4.8) ---------------------------------------
+  const dsProject = (
+    await request("POST", "/projects", {
+      body: { name: `API E2E Design ${suffix}` },
+    })
+  ).payload;
+  await request("POST", `/projects/${dsProject.id}/document`, {
+    body: { document: makeDoc("DS home") },
+  });
+  await request("POST", `/projects/${dsProject.id}/pages`, {
+    body: { name: "Thứ hai", document: makeDoc("DS second") },
+  });
+  const dsPages = (await request("GET", `/projects/${dsProject.id}/pages`)).payload;
+  check("design system fixture has two pages", dsPages.pages.length === 2);
+
+  const designSystemA = (
+    await request("POST", "/design-systems", {
+      body: {
+        name: `Brand Blue ${suffix}`,
+        description: "Design system cho dashboard",
+        theme: {
+          mode: "light",
+          primary: "#2563EB",
+          primaryForeground: "#FFFFFF",
+          background: "#FFFFFF",
+          foreground: "#0F172A",
+          muted: "#F1F5F9",
+          mutedForeground: "#64748B",
+          border: "#E2E8F0",
+          fontFamily: "Be Vietnam Pro",
+          radius: 12,
+        },
+      },
+    })
+  ).payload;
+  check(
+    "create design system",
+    designSystemA.theme.primary === "#2563EB" &&
+      designSystemA.theme.radius === 12 &&
+      designSystemA.description === "Design system cho dashboard",
+    JSON.stringify(designSystemA),
+  );
+
+  const duplicateSystemName = await request("POST", "/design-systems", {
+    body: { name: designSystemA.name, theme: designSystemA.theme },
+    status: 400,
+  });
+  check("design system names are unique", duplicateSystemName.status === 400);
+
+  const invalidSystem = await request("POST", "/design-systems", {
+    body: { name: `Bad ${suffix}`, theme: { ...designSystemA.theme, mode: "neon" } },
+    status: 400,
+  });
+  check("design system theme is validated", invalidSystem.status === 400);
+
+  const systemList = (await request("GET", "/design-systems")).payload;
+  check(
+    "design system list includes the new system",
+    systemList.designSystems.some((entry) => entry.id === designSystemA.id),
+  );
+
+  const appliedA = (
+    await request("POST", `/projects/${dsProject.id}/design-system`, {
+      body: { designSystemId: designSystemA.id },
+    })
+  ).payload;
+  check(
+    "apply design system to all pages",
+    appliedA.designSystemId === designSystemA.id && appliedA.updatedPages === 2,
+    JSON.stringify(appliedA),
+  );
+
+  const appliedPageDocs = [];
+  for (const page of dsPages.pages) {
+    appliedPageDocs.push(
+      (await request("GET", `/projects/${dsProject.id}/pages/${page.id}`)).payload.document,
+    );
+  }
+  check(
+    "every page document adopts the design system theme",
+    appliedPageDocs.every(
+      (document) =>
+        document?.theme?.primary === "#2563EB" &&
+        document?.theme?.fontFamily === "Be Vietnam Pro" &&
+        document?.root?.children?.[0]?.id === "title",
+    ),
+    JSON.stringify(appliedPageDocs.map((document) => document?.theme?.primary)),
+  );
+
+  const appliedProject = (await request("GET", `/projects/${dsProject.id}`)).payload;
+  check(
+    "project records the active design system",
+    appliedProject.designSystemId === designSystemA.id,
+  );
+
+  const renamedSystem = (
+    await request("PATCH", `/design-systems/${designSystemA.id}`, {
+      body: { name: `Renamed Blue ${suffix}`, theme: { ...designSystemA.theme, radius: 16 } },
+    })
+  ).payload;
+  check(
+    "update design system tokens",
+    renamedSystem.name === `Renamed Blue ${suffix}` && renamedSystem.theme.radius === 16,
+  );
+
+  const designSystemB = (
+    await request("POST", "/design-systems", {
+      body: {
+        name: `Emerald Dark ${suffix}`,
+        theme: {
+          mode: "dark",
+          primary: "#10B981",
+          primaryForeground: "#052E16",
+          background: "#0F172A",
+          foreground: "#F8FAFC",
+          muted: "#1E293B",
+          mutedForeground: "#94A3B8",
+          border: "#334155",
+          fontFamily: "Inter",
+          radius: 4,
+        },
+      },
+    })
+  ).payload;
+  const appliedB = (
+    await request("POST", `/projects/${dsProject.id}/design-system`, {
+      body: { designSystemId: designSystemB.id },
+    })
+  ).payload;
+  const switchedDoc = (
+    await request("GET", `/projects/${dsProject.id}/pages/${dsPages.pages[0].id}`)
+  ).payload.document;
+  check(
+    "switching projects between design systems rewrites every page",
+    appliedB.designSystemId === designSystemB.id &&
+      appliedB.updatedPages === 2 &&
+      switchedDoc.theme.primary === "#10B981" &&
+      switchedDoc.theme.mode === "dark",
+    JSON.stringify(switchedDoc.theme),
+  );
+
+  const dsCopy = (await request("POST", `/projects/${dsProject.id}/duplicate`)).payload;
+  check("duplicate keeps the design system link", dsCopy.designSystemId === designSystemB.id);
+  const copiedTheme = (await request("GET", `/projects/${dsCopy.id}/document`)).payload.document
+    .theme;
+  check(
+    "duplicated document keeps the applied tokens",
+    copiedTheme.primary === "#10B981",
+    JSON.stringify(copiedTheme),
+  );
+
+  const detached = (
+    await request("POST", `/projects/${dsProject.id}/design-system`, {
+      body: { designSystemId: null },
+    })
+  ).payload;
+  const detachedProject = (await request("GET", `/projects/${dsProject.id}`)).payload;
+  const detachedDoc = (
+    await request("GET", `/projects/${dsProject.id}/pages/${dsPages.pages[0].id}`)
+  ).payload.document;
+  check(
+    "detaching a design system leaves document themes intact",
+    detached.designSystemId === null &&
+      detached.updatedPages === 0 &&
+      detachedProject.designSystemId === null &&
+      detachedDoc.theme.primary === "#10B981",
+  );
+
+  await request("POST", `/projects/${project.id}/design-system`, {
+    body: { designSystemId: "missing-system" },
+    status: 404,
+  });
+  check("cannot apply a missing design system", true);
+
+  await request("POST", "/projects/missing-project/design-system", {
+    body: { designSystemId: designSystemB.id },
+    status: 404,
+  });
+  check("cannot apply a design system to a missing project", true);
+
+  const designSystemC = (
+    await request("POST", "/design-systems", {
+      body: {
+        name: `Temporary ${suffix}`,
+        theme: { ...designSystemA.theme, radius: 20 },
+      },
+    })
+  ).payload;
+  await request("POST", `/projects/${dsProject.id}/design-system`, {
+    body: { designSystemId: designSystemC.id },
+  });
+  const afterDeleteSystems = (
+    await request("DELETE", `/design-systems/${designSystemC.id}`)
+  ).payload;
+  const projectAfterSystemDelete = (await request("GET", `/projects/${dsProject.id}`)).payload;
+  check(
+    "deleting a design system detaches referencing projects",
+    !afterDeleteSystems.designSystems.some((entry) => entry.id === designSystemC.id) &&
+      projectAfterSystemDelete.designSystemId === null,
+  );
+
+  await request("DELETE", `/design-systems/${designSystemA.id}`);
+  await request("DELETE", `/design-systems/${designSystemB.id}`);
+
   // --- Assets --------------------------------------------------------------
   const upload = (
     await request("POST", `/projects/${project.id}/assets`, {
@@ -1058,7 +1263,14 @@ async function main() {
   );
 
   // --- Cleanup -------------------------------------------------------------
-  for (const id of [project.id, isolation.id, pageCopy.id, copy.id]) {
+  for (const id of [
+    project.id,
+    isolation.id,
+    pageCopy.id,
+    copy.id,
+    dsProject.id,
+    dsCopy.id,
+  ]) {
     await request("DELETE", `/projects/${id}`);
   }
   await request("GET", `/projects/${project.id}`, { status: 404 });
@@ -1067,9 +1279,14 @@ async function main() {
   const remaining = (await request("GET", "/projects")).payload;
   check(
     "delete projects",
-    ![project.id, isolation.id, pageCopy.id, copy.id].some((id) =>
-      remaining.some((p) => p.id === id),
-    ),
+    ![
+      project.id,
+      isolation.id,
+      pageCopy.id,
+      copy.id,
+      dsProject.id,
+      dsCopy.id,
+    ].some((id) => remaining.some((p) => p.id === id)),
   );
 
   console.log(`\nRESULT: PASS — ${checks.length} checks`);

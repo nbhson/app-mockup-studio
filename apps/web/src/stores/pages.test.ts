@@ -56,16 +56,27 @@ describe("document store pages", () => {
 
   it("loads the page list before the active document", async () => {
     const home = page("page-1", "Home");
-    mocks.get.mockImplementation(async (path: string) =>
-      path.endsWith("/pages")
-        ? { projectId: "p1", currentPageId: home.id, pages: [home] }
-        : {
-            projectId: "p1",
-            currentPageId: home.id,
-            document: makeDoc("Home"),
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          },
-    );
+    mocks.get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/pages")) {
+        return { projectId: "p1", currentPageId: home.id, pages: [home] };
+      }
+      if (path === "/projects/p1") {
+        return {
+          id: "p1",
+          name: "Project",
+          description: null,
+          designSystemId: "ds-1",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+      }
+      return {
+        projectId: "p1",
+        currentPageId: home.id,
+        document: makeDoc("Home"),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+    });
 
     const store = useDocumentStore();
     await store.load("p1");
@@ -73,11 +84,13 @@ describe("document store pages", () => {
     expect(mocks.get.mock.calls.map((call) => call[0])).toEqual([
       "/projects/p1/pages",
       "/projects/p1/document",
+      "/projects/p1",
     ]);
     expect(store.pages).toEqual([home]);
     expect(store.currentPageId).toBe("page-1");
     expect(store.currentPage?.name).toBe("Home");
     expect(store.document?.name).toBe("Home");
+    expect(store.designSystemId).toBe("ds-1");
     store.$dispose();
   });
 
@@ -173,6 +186,68 @@ describe("document store pages", () => {
     expect(mocks.get).not.toHaveBeenCalled();
     expect(store.currentPageId).toBe("page-1");
     expect(store.document?.name).toBe("Home");
+    store.$dispose();
+  });
+
+  it("flushes edits then applies a design system theme to the open page", async () => {
+    const appliedTheme = { ...makeDoc("Home").theme, primary: "#10B981" };
+    mocks.post.mockImplementation(async (path: string, body?: { document?: unknown }) => {
+      if (path.endsWith("/design-system")) {
+        return {
+          projectId: "p1",
+          designSystemId: "ds-9",
+          theme: appliedTheme,
+          updatedPages: 2,
+        };
+      }
+      return {
+        projectId: "p1",
+        currentPageId: "page-1",
+        document: body?.document,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+    });
+
+    const store = useDocumentStore();
+    store.setProject("p1");
+    store.setDocument(makeDoc("Home"));
+    expect(store.isDirty).toBe(true);
+
+    await store.applyDesignSystem("ds-9");
+
+    expect(mocks.post.mock.calls.map((call) => call[0])).toEqual([
+      "/projects/p1/document",
+      "/projects/p1/design-system",
+    ]);
+    expect(store.designSystemId).toBe("ds-9");
+    expect(store.document?.theme).toEqual(appliedTheme);
+    expect(store.document?.name).toBe("Home");
+    expect(store.isDirty).toBe(false);
+    store.$dispose();
+  });
+
+  it("clears the design system link when detaching", async () => {
+    mocks.post.mockResolvedValue({
+      projectId: "p1",
+      designSystemId: null,
+      theme: null,
+      updatedPages: 0,
+    });
+
+    const store = useDocumentStore();
+    store.setProject("p1");
+    store.designSystemId = "ds-9";
+    store.setDocument(makeDoc("Home"));
+    store.isDirty = false;
+    const theme = store.document?.theme;
+
+    await store.applyDesignSystem(null);
+
+    expect(mocks.post).toHaveBeenCalledWith("/projects/p1/design-system", {
+      designSystemId: null,
+    });
+    expect(store.designSystemId).toBeNull();
+    expect(store.document?.theme).toBe(theme);
     store.$dispose();
   });
 });

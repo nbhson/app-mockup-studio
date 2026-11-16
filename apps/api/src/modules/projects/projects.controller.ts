@@ -24,6 +24,7 @@ function toDto(row: {
   id: string;
   name: string;
   description: string | null;
+  designSystemId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): ProjectDto {
@@ -31,6 +32,7 @@ function toDto(row: {
     id: row.id,
     name: row.name,
     description: row.description,
+    designSystemId: row.designSystemId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -95,6 +97,7 @@ export class ProjectsController {
         name: `${source.name} (bản sao)`,
         description: source.description,
         ownerId: source.ownerId,
+        designSystemId: source.designSystemId,
       })
       .returning();
 

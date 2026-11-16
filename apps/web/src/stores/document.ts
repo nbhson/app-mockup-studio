@@ -13,11 +13,13 @@ import type {
   PageDetailResponse,
   PageListResponse,
   PageSummaryDto,
+  ProjectDto,
   ReplacePagesInput,
   VersionListResponse,
   VersionSummaryDto,
 } from "@ai-mockup-studio/shared-types";
 import { api } from "../services/api";
+import { applyDesignSystemToProject } from "../services/design-systems";
 
 // ---------------------------------------------------------------------------
 // Document Store — the single source of truth for the editable mockup.
@@ -74,6 +76,12 @@ export const useDocumentStore = defineStore("document", () => {
   const currentPageId = ref<string | null>(null);
   const pagesLoading = ref(false);
   const pagesError = ref<string | null>(null);
+
+  // Custom design system (plan/07 4.8): project-level token source. Applying a
+  // system updates every page server-side, then syncs only the open document.
+  const designSystemId = ref<string | null>(null);
+  const isApplyingDesignSystem = ref(false);
+  const designSystemError = ref<string | null>(null);
   const currentPage = computed(
     () => pages.value.find((page) => page.id === currentPageId.value) ?? null,
   );
@@ -281,6 +289,12 @@ export const useDocumentStore = defineStore("document", () => {
       ) {
         await loadPages(project);
       }
+      // The active design system is auxiliary metadata: a failed lookup must
+      // never block opening the editor.
+      const projectDetail = await api
+        .get<ProjectDto>(`/projects/${project}`)
+        .catch(() => null);
+      designSystemId.value = projectDetail?.designSystemId ?? null;
       clearSelection();
       past.value = [];
       future.value = [];
@@ -288,6 +302,7 @@ export const useDocumentStore = defineStore("document", () => {
       isDirty.value = false;
       saveError.value = null;
       pagesError.value = null;
+      designSystemError.value = null;
       versions.value = [];
       versionsError.value = null;
       editRevision = 0;
@@ -540,6 +555,37 @@ export const useDocumentStore = defineStore("document", () => {
     }
   }
 
+  /** Apply (or detach) a project design system after flushing local edits. */
+  async function applyDesignSystem(id: string | null) {
+    if (!projectId.value || isApplyingDesignSystem.value) return;
+    isApplyingDesignSystem.value = true;
+    designSystemError.value = null;
+    try {
+      if (isDirty.value) {
+        await save();
+        if (isDirty.value) {
+          throw new Error(saveError.value ?? "Không lưu được document hiện tại");
+        }
+      }
+      cancelAutosave();
+      const response = await applyDesignSystemToProject(projectId.value, id);
+      designSystemId.value = response.designSystemId ?? null;
+      if (document.value && response.theme) {
+        document.value = { ...document.value, theme: response.theme };
+        lastSavedAt.value = new Date();
+      } else if (document.value) {
+        lastSavedAt.value = new Date();
+      }
+      return response;
+    } catch (e) {
+      designSystemError.value =
+        e instanceof Error ? e.message : "Không áp dụng được design system";
+      throw e;
+    } finally {
+      isApplyingDesignSystem.value = false;
+    }
+  }
+
   // --- Version history -----------------------------------------------------
 
   async function loadVersions() {
@@ -621,6 +667,10 @@ export const useDocumentStore = defineStore("document", () => {
     currentPage,
     pagesLoading,
     pagesError,
+    designSystemId,
+    isApplyingDesignSystem,
+    designSystemError,
+    applyDesignSystem,
     loadPages,
     switchPage,
     createPage,
