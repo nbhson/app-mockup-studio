@@ -238,3 +238,5 @@ export function applyPatchBatch(doc: UiDocument, patches: UiPatch[]): UiDocument
 
 // Code export (HTML / React / Vue) — reuses the resolved element tree above.
 export * from "./export-code";
+// Design-to-code bundle (components + CSS classes + design tokens, plan/07 4.2).
+export * from "./design-to-code";

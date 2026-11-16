@@ -112,14 +112,15 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   hidden/locked layer flags, responsive overrides, AI generate/edit/critique/
   dummy-data/responsive/recommend-components/image-to-ui/url-to-ui (SSRF +
   redirect)/design-reference/multi-page, metrics.
-- `pnpm test` — 158 unit test (API 106, renderer 21, web 31) cho store selection,
+- `pnpm test` — 167 unit test (API 106, renderer 28, web 33) cho store selection,
   patch/clone, group move, layer lock, diff version, multi-page store,
   share token/password/expiry validation,
   metrics, rate limit, validation, responsive resolution & optimization,
   accessibility & design-consistency analysis, heuristic design critique,
   dummy-data generation, component recommendation, image-to-UI fallback,
   URL parsing & SSRF guards, palette extraction & theme mapping, multi-page
-  generation, code export và performance guard.
+  generation, code export, design-to-code bundle, thu thập asset ảnh và
+  performance guard.
 - Performance guard: test `601 nodes` trong `packages/ui-renderer` (resolve +
   export HTML) và đã đo UI thật: render 601 node ~0.9 s, selection ~16 ms.
 
@@ -172,6 +173,9 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
 - [x] Quản lý ảnh của dự án: upload (PNG/JPEG/WebP/GIF ≤ 2 MB), dùng/thay ảnh, xóa
 - [x] Export PNG/SVG/JSON từ canvas
 - [x] Export code HTML/React/Vue (style inline, nhúng ảnh dạng data URL, tải/copy)
+- [x] Design-to-code: tách block cấp cao thành component React/Vue (hoặc HTML),
+  sinh `styles.css` với class ngữ nghĩa + design token dạng CSS variable, xem và
+  chỉnh sửa từng file trước khi copy/tải
 - [x] Drizzle migration + seed; API E2E và UI flow đã kiểm chứng
 - [x] Monitoring: `/api/health` (DB readiness), `/api/metrics` (latency, lỗi, AI token/fallback)
 - [x] Production hardening: Redis rate limit chia sẻ giữa nhiều API instance

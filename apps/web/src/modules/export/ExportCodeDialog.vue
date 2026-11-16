@@ -7,8 +7,8 @@ import {
   exportDocumentToCode,
   type CodeTarget,
 } from "@ai-mockup-studio/ui-renderer";
-import type { UiNode } from "@ai-mockup-studio/ui-schema";
 import { useDocumentStore } from "../../stores/document";
+import { collectAssetMap } from "../../services/document-assets";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: "close"): void }>();
@@ -65,45 +65,6 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") close();
 }
 
-function collectImageSources(root: UiNode): string[] {
-  const found = new Set<string>();
-  const walk = (node: UiNode) => {
-    const src = node.props?.src;
-    if (typeof src === "string" && src.startsWith("/api/")) found.add(src);
-    for (const child of node.children ?? []) walk(child);
-  };
-  walk(root);
-  return [...found];
-}
-
-async function collectAssets(): Promise<Record<string, string>> {
-  const map: Record<string, string> = {};
-  if (!doc.document) return map;
-  const sources = collectImageSources(doc.document.root);
-  if (sources.length === 0) return map;
-
-  loadingAssets.value = true;
-  await Promise.all(
-    sources.map(async (src) => {
-      try {
-        const res = await fetch(src);
-        if (!res.ok) return;
-        const blob = await res.blob();
-        map[src] = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result ?? ""));
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(blob);
-        });
-      } catch {
-        // Fall back to the absolute URL provided via baseUrl.
-      }
-    }),
-  );
-  loadingAssets.value = false;
-  return map;
-}
-
 watch(
   () => props.open,
   (open) => {
@@ -112,9 +73,18 @@ watch(
       copied.value = false;
       assetMap.value = {};
       window.addEventListener("keydown", onKeydown);
-      void collectAssets().then((map) => {
-        assetMap.value = map;
-      });
+      if (doc.document) {
+        loadingAssets.value = true;
+        void collectAssetMap(doc.document.root)
+          .then((map) => {
+            assetMap.value = map;
+          })
+          .finally(() => {
+            loadingAssets.value = false;
+          });
+      } else {
+        loadingAssets.value = false;
+      }
     } else {
       window.removeEventListener("keydown", onKeydown);
     }

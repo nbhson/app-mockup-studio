@@ -19,13 +19,15 @@ export interface ExportCodeOptions {
   baseUrl?: string;
 }
 
-interface CodeNode {
+export interface CodeNode {
   tag: string;
   /** CSS properties in camelCase, values already include units. */
   style: Record<string, string>;
   attrs: Record<string, string>;
   text?: string;
   children: CodeNode[];
+  /** Human-readable role used by the design-to-code class generator. */
+  role?: string;
 }
 
 const VOID_TAGS = new Set(["img", "input", "br", "hr"]);
@@ -87,7 +89,7 @@ function resolveImageSrc(src: string, options: ExportCodeOptions): string {
   return src;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -96,11 +98,11 @@ function escapeHtml(value: string): string {
 }
 
 /** Vue templates must not treat user text containing `{{` as interpolation. */
-function escapeVueText(value: string): string {
+export function escapeVueText(value: string): string {
   return escapeHtml(value).replace(/\{/g, "&#123;").replace(/\}/g, "&#125;");
 }
 
-function pascalCase(value: string): string {
+export function pascalCase(value: string): string {
   const normalized = value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -116,23 +118,24 @@ function pascalCase(value: string): string {
   return /^[0-9]/.test(name) ? `Mockup${name}` : name;
 }
 
-function kebabCase(key: string): string {
+export function kebabCase(key: string): string {
   return key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
 }
 
 // --- Schema → framework-neutral code tree -----------------------------------
 
-function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
+export function buildCodeTree(el: ResolvedElement, options: ExportCodeOptions = {}): CodeNode {
   const base = baseStyles(el);
   // Hidden layers are editor-only state; generated code must not emit them.
   const children = (el.children ?? [])
     .filter((child) => !child.hidden)
-    .map((child) => buildTree(child, options));
+    .map((child) => buildCodeTree(child, options));
 
   switch (el.type) {
     case "basic.button":
       return {
         tag: "button",
+        role: "button",
         style: {
           ...base,
           border: "none",
@@ -153,6 +156,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     case "basic.input":
       return {
         tag: "input",
+        role: "input",
         style: {
           ...base,
           width: base.width ?? "100%",
@@ -173,6 +177,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     case "basic.image":
       return {
         tag: "img",
+        role: "image",
         style: {
           ...base,
           width: base.width ?? "100%",
@@ -188,6 +193,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     case "basic.text":
       return {
         tag: "div",
+        role: "text",
         style: base,
         attrs: {},
         text: String(el.props.text ?? ""),
@@ -197,6 +203,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     case "dashboard.header": {
       const title: CodeNode = {
         tag: "div",
+        role: "header-title",
         style: {
           fontWeight: base.fontWeight ?? "700",
           fontSize: base.fontSize ?? "24px",
@@ -210,6 +217,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
         ? [
             {
               tag: "div",
+              role: "header-subtitle",
               style: { fontSize: "14px", color: "#64748b", marginTop: "4px" },
               attrs: {},
               text: String(el.props.subtitle),
@@ -217,7 +225,13 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
             } satisfies CodeNode,
           ]
         : [];
-      return { tag: "div", style: base, attrs: {}, children: [title, ...subtitle] };
+      return {
+        tag: "div",
+        role: "header",
+        style: base,
+        attrs: {},
+        children: [title, ...subtitle],
+      };
     }
 
     case "dashboard.stats": {
@@ -230,6 +244,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
       const cards: CodeNode[] = items.map((item, index) => {
         const label: CodeNode = {
           tag: "div",
+          role: "stat-label",
           style: { fontSize: "12px", color: "#64748b" },
           attrs: {},
           text: String(item),
@@ -237,6 +252,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
         };
         const value: CodeNode = {
           tag: "div",
+          role: "stat-value",
           style: {
             marginTop: "4px",
             fontSize: "20px",
@@ -249,6 +265,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
         };
         return {
           tag: "div",
+          role: "stat-card",
           style: {
             border: "1px solid #e2e8f0",
             borderRadius: "8px",
@@ -261,6 +278,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
       });
       return {
         tag: "div",
+        role: "stats",
         style: { display: "grid", gap: base.gap ?? "12px", ...base },
         attrs: {},
         children: cards,
@@ -270,6 +288,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     case "dashboard.chart": {
       const bars = [40, 65, 50, 80, 60, 90, 55].map<CodeNode>((height) => ({
         tag: "div",
+        role: "chart-bar",
         style: {
           width: "100%",
           height: `${height}%`,
@@ -281,6 +300,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
       }));
       return {
         tag: "div",
+        role: "chart",
         style: {
           ...base,
           display: "flex",
@@ -294,6 +314,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
         children: [
           {
             tag: "span",
+            role: "chart-title",
             style: { fontSize: "12px", color: "#64748b" },
             attrs: {},
             text: String(el.props.title ?? ""),
@@ -301,6 +322,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
           },
           {
             tag: "div",
+            role: "chart-bars",
             style: {
               marginTop: "8px",
               display: "flex",
@@ -325,10 +347,12 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
       const cellStyle = { padding: "8px 12px" };
       const headRow: CodeNode = {
         tag: "tr",
+        role: "table-head-row",
         style: { backgroundColor: "#f8fafc", textAlign: "left" },
         attrs: {},
         children: headers.map((header) => ({
           tag: "th",
+          role: "table-head-cell",
           style: {
             ...cellStyle,
             fontWeight: "500",
@@ -342,10 +366,12 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
       };
       const bodyRows: CodeNode[] = rows.map((row) => ({
         tag: "tr",
+        role: "table-row",
         style: { borderTop: "1px solid #e2e8f0" },
         attrs: {},
         children: row.map((cell) => ({
           tag: "td",
+          role: "table-cell",
           style: { ...cellStyle },
           attrs: {},
           text: String(cell),
@@ -354,6 +380,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
       }));
       return {
         tag: "table",
+        role: "table",
         style: {
           ...base,
           width: base.width ?? "100%",
@@ -372,7 +399,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     }
 
     case "formal.form":
-      return { tag: "form", style: base, attrs: {}, children };
+      return { tag: "form", role: "form", style: base, attrs: {}, children };
 
     default:
       break;
@@ -381,6 +408,7 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
   if (!el.known) {
     return {
       tag: "div",
+      role: "unsupported",
       style: {
         ...base,
         border: "1px dashed #fdba74",
@@ -395,11 +423,17 @@ function buildTree(el: ResolvedElement, options: ExportCodeOptions): CodeNode {
     };
   }
 
-  return { tag: "div", style: base, attrs: {}, children };
+  return {
+    tag: "div",
+    role: el.label,
+    style: base,
+    attrs: {},
+    children,
+  };
 }
 
-function buildRoot(doc: UiDocument, options: ExportCodeOptions): CodeNode {
-  return buildTree(resolveNode(doc.root, doc.theme), options);
+export function buildCodeRoot(doc: UiDocument, options: ExportCodeOptions = {}): CodeNode {
+  return buildCodeTree(resolveNode(doc.root, doc.theme), options);
 }
 
 // --- HTML -------------------------------------------------------------------
@@ -445,7 +479,7 @@ export function exportDocumentToHtml(
   doc: UiDocument,
   options: ExportCodeOptions = {},
 ): string {
-  const root = buildRoot(doc, options);
+  const root = buildCodeRoot(doc, options);
   return `<!doctype html>
 <html lang="vi">
 <head>
@@ -507,7 +541,7 @@ export function exportDocumentToReact(
   doc: UiDocument,
   options: ExportCodeOptions = {},
 ): string {
-  const root = buildRoot(doc, options);
+  const root = buildCodeRoot(doc, options);
   const component = `${pascalCase(doc.name)}Mockup`;
   return `// Generated by AI Mockup Studio — ${doc.name}
 // Inline styles only, no external dependencies.
@@ -561,7 +595,7 @@ export function exportDocumentToVue(
   doc: UiDocument,
   options: ExportCodeOptions = {},
 ): string {
-  const root = buildRoot(doc, options);
+  const root = buildCodeRoot(doc, options);
   return `<!-- Generated by AI Mockup Studio — ${escapeHtml(doc.name)} -->
 <script setup lang="ts"></script>
 
