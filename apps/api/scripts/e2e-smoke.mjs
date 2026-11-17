@@ -7,7 +7,9 @@
 // restore, cross-project isolation, public/private share links (password,
 // expiry, revoke), canvas comment threads (element anchors, replies, resolve,
 // status filters, cross-project isolation), custom design systems (token CRUD,
-// apply/switch/cascade delete), assets validation/raw bytes/delete
+// apply/switch/cascade delete), component libraries (CRUD, add/update/remove
+// component, export/import bundle, unique name/type), assets
+// validation/raw bytes/delete
 // and asset copying on duplicate, hidden/locked flags, AI generate/edit and
 // observability counters.
 //
@@ -824,6 +826,198 @@ async function main() {
 
   await request("DELETE", `/design-systems/${designSystemA.id}`);
   await request("DELETE", `/design-systems/${designSystemB.id}`);
+
+  // --- Component libraries (plan/07 4.3) -----------------------------------
+  const libraryA = (
+    await request("POST", "/component-libraries", {
+      body: { name: `SaaS Kit ${suffix}`, description: "Thư viện chung cho SaaS" },
+    })
+  ).payload;
+  check(
+    "create component library",
+    libraryA.name === `SaaS Kit ${suffix}` &&
+      libraryA.description === "Thư viện chung cho SaaS" &&
+      libraryA.components.length === 0,
+    JSON.stringify(libraryA),
+  );
+
+  const duplicateLibrary = await request("POST", "/component-libraries", {
+    body: { name: libraryA.name, description: "trùng" },
+    status: 400,
+  });
+  check("component library names are unique", duplicateLibrary.status === 400);
+
+  const badLibrary = await request("POST", "/component-libraries", {
+    body: { name: "   " },
+    status: 400,
+  });
+  check("component library name is required", badLibrary.status === 400);
+
+  const navbarSchema = {
+    id: "navbar-main",
+    type: "layout.navbar",
+    props: { title: "SaaS", showBack: false },
+    children: [
+      { id: "nav-link", type: "basic.button", props: { label: "Pricing" } },
+    ],
+  };
+  const addedComponent = (
+    await request("POST", `/component-libraries/${libraryA.id}/components`, {
+      body: {
+        type: "layout.navbar",
+        label: "Navbar",
+        category: "navigation",
+        schema: navbarSchema,
+        tags: ["nav", "header"],
+      },
+    })
+  ).payload;
+  check(
+    "add a component to the library",
+    addedComponent.type === "layout.navbar" &&
+      addedComponent.label === "Navbar" &&
+      addedComponent.libraryId === libraryA.id,
+    JSON.stringify(addedComponent),
+  );
+
+  const duplicateComponent = await request(
+    "POST",
+    `/component-libraries/${libraryA.id}/components`,
+    {
+      body: { type: "layout.navbar", label: "Navbar 2", schema: navbarSchema },
+      status: 400,
+    },
+  );
+  check("component types are unique within a library", duplicateComponent.status === 400);
+
+  const invalidSchema = await request(
+    "POST",
+    `/component-libraries/${libraryA.id}/components`,
+    {
+      body: { type: "basic.text", label: "Broken", schema: { type: "basic.text" } },
+      status: 400,
+    },
+  );
+  check("component schema is validated", invalidSchema.status === 400);
+
+  const listedLibraries = (
+    await request("GET", "/component-libraries")
+  ).payload;
+  const libraryARow = listedLibraries.libraries.find((l) => l.id === libraryA.id);
+  check(
+    "component library list includes the new library with its component",
+    !!libraryARow && libraryARow.components.length === 1,
+    JSON.stringify(libraryARow),
+  );
+
+  const libraryDetail = (
+    await request("GET", `/component-libraries/${libraryA.id}`)
+  ).payload;
+  check(
+    "library detail returns the stored schema verbatim",
+    libraryDetail.components[0]?.id === addedComponent.id &&
+      libraryDetail.components[0]?.schema.props.title === "SaaS",
+    JSON.stringify(libraryDetail),
+  );
+
+  const renamedComponent = (
+    await request(
+      "PATCH",
+      `/component-libraries/${libraryA.id}/components/${addedComponent.id}`,
+      { body: { label: "Top navbar", tags: ["nav", "top"] } },
+    )
+  ).payload;
+  check(
+    "update component metadata",
+    renamedComponent.label === "Top navbar" &&
+      renamedComponent.tags.join(",") === "nav,top" &&
+      renamedComponent.schema.id === "navbar-main",
+  );
+
+  const renamedLibrary = (
+    await request("PATCH", `/component-libraries/${libraryA.id}`, {
+      body: { name: `SaaS Pro Kit ${suffix}`, description: "Mô tả mới" },
+    })
+  ).payload;
+  check(
+    "update library metadata",
+    renamedLibrary.name === `SaaS Pro Kit ${suffix}` &&
+      renamedLibrary.description === "Mô tả mới" &&
+      renamedLibrary.components.length === 1,
+    JSON.stringify(renamedLibrary),
+  );
+
+  // Renaming onto another existing library's name must be rejected (the check
+  // ignores the library that already owns the name).
+  const renameCollision = (
+    await request("POST", "/component-libraries", {
+      body: { name: `Other Kit ${suffix}` },
+    })
+  ).payload;
+  const duplicateRename = await request(
+    "PATCH",
+    `/component-libraries/${libraryA.id}`,
+    { body: { name: `Other Kit ${suffix}` }, status: 400 },
+  );
+  check("cannot rename a library to an existing name", duplicateRename.status === 400);
+  await request("DELETE", `/component-libraries/${renameCollision.id}`);
+
+  const exportPayload = (
+    await request("GET", `/component-libraries/${libraryA.id}/export`)
+  ).payload;
+  check(
+    "export library as a portable JSON bundle",
+    exportPayload.kind === "ai-mockup-studio/component-library" &&
+      exportPayload.components.length === 1 &&
+      exportPayload.components[0].schema.type === "layout.navbar",
+    JSON.stringify(exportPayload),
+  );
+
+  // Free the name so the same bundle can be imported back into a fresh library.
+  await request("DELETE", `/component-libraries/${libraryA.id}`);
+
+  const importedLibrary = (
+    await request("POST", "/component-libraries/import", { body: exportPayload })
+  ).payload;
+  check(
+    "import a library from an exported bundle",
+    importedLibrary.name === `SaaS Pro Kit ${suffix}` &&
+      importedLibrary.components.length === 1 &&
+      importedLibrary.components[0].label === "Top navbar",
+    JSON.stringify(importedLibrary),
+  );
+
+  const duplicateImport = await request("POST", "/component-libraries/import", {
+    body: exportPayload,
+    status: 400,
+  });
+  check("import rejects an existing library name", duplicateImport.status === 400);
+
+  const badImport = await request("POST", "/component-libraries/import", {
+    body: { kind: "wrong", components: [] },
+    status: 400,
+  });
+  check("import rejects a malformed bundle", badImport.status === 400);
+
+  const removedComponent = (
+    await request(
+      "DELETE",
+      `/component-libraries/${importedLibrary.id}/components/${importedLibrary.components[0].id}`,
+    )
+  ).payload;
+  check(
+    "remove a component from the library",
+    removedComponent.library.components.length === 0,
+    JSON.stringify(removedComponent),
+  );
+
+  await request("DELETE", `/component-libraries/${importedLibrary.id}`);
+  const listsAfterDelete = (await request("GET", "/component-libraries")).payload;
+  check(
+    "deleting libraries removes them from the list",
+    !listsAfterDelete.libraries.some((l) => l.id === libraryA.id) &&
+      !listsAfterDelete.libraries.some((l) => l.id === importedLibrary.id),
+  );
 
   // --- Assets --------------------------------------------------------------
   const upload = (

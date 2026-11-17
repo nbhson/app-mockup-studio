@@ -7,6 +7,7 @@ import { PagesModule } from "./modules/pages/pages.module";
 import { SharesModule } from "./modules/shares/shares.module";
 import { CommentsModule } from "./modules/comments/comments.module";
 import { DesignSystemsModule } from "./modules/design-systems/design-systems.module";
+import { ComponentLibrariesModule } from "./modules/component-libraries/component-libraries.module";
 import { VersionsModule } from "./modules/versions/versions.module";
 import { AssetsModule } from "./modules/assets/assets.module";
 import { AiModule } from "./modules/ai/ai.module";
@@ -26,6 +27,7 @@ import { SecurityHeadersMiddleware } from "./common/security-headers.middleware"
     SharesModule,
     CommentsModule,
     DesignSystemsModule,
+    ComponentLibrariesModule,
     VersionsModule,
     AssetsModule,
     AiModule,

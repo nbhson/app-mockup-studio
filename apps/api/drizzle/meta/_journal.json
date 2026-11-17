@@ -43,6 +43,13 @@
       "when": 1794836669327,
       "tag": "0005_design_systems",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794921359253,
+      "tag": "0006_component_libraries",
+      "breakpoints": true
     }
   ]
 }

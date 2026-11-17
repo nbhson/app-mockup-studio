@@ -522,6 +522,66 @@ export interface ApplyDesignSystemResponse {
   updatedPages: number;
 }
 
+// --- Component libraries (plan/07 4.3) -------------------------------------
+
+export interface LibraryComponentDto {
+  id: string;
+  libraryId: string;
+  type: string;
+  label: string;
+  category: string;
+  schema: unknown;
+  tags: string[];
+  createdAt: string;
+}
+
+export interface ComponentLibraryDto {
+  id: string;
+  name: string;
+  description: string | null;
+  version: number;
+  components: LibraryComponentDto[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ComponentLibraryListResponse {
+  libraries: ComponentLibraryDto[];
+}
+
+export interface CreateLibraryInput {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateLibraryInput {
+  name?: string;
+  description?: string | null;
+}
+
+export interface AddLibraryComponentInput {
+  type: string;
+  label: string;
+  category?: string;
+  schema: unknown;
+  tags?: string[];
+}
+
+export interface UpdateLibraryComponentInput {
+  label?: string;
+  category?: string;
+  schema?: unknown;
+  tags?: string[];
+}
+
+export interface LibraryExportPayload {
+  kind: "ai-mockup-studio/component-library";
+  version: number;
+  name: string;
+  description: string | null;
+  components: Omit<LibraryComponentDto, "id" | "libraryId" | "createdAt">[];
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

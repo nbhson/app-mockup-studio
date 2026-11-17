@@ -27,6 +27,7 @@ import MultiPageDialog from "../pages/MultiPageDialog.vue";
 import ShareDialog from "../share/ShareDialog.vue";
 import CommentsDialog from "../comments/CommentsDialog.vue";
 import DesignSystemsDialog from "../design-systems/DesignSystemsDialog.vue";
+import ComponentLibrariesDialog from "../component-libraries/ComponentLibrariesDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -50,6 +51,7 @@ const showMultiPage = ref(false);
 const showShare = ref(false);
 const showComments = ref(false);
 const showDesignSystems = ref(false);
+const showComponentLibraries = ref(false);
 const pageBusy = ref(false);
 const pageError = ref<string | null>(null);
 
@@ -882,6 +884,14 @@ onBeforeUnmount(() => {
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
+          title="Thư viện component dùng lại và chia sẻ"
+          @click="showComponentLibraries = true"
+        >
+          🧱 Component library
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.document"
           title="Xuất code HTML / React / Vue"
           @click="showCode = true"
         >
@@ -1147,5 +1157,9 @@ onBeforeUnmount(() => {
     <ShareDialog :open="showShare" @close="showShare = false" />
     <CommentsDialog :open="showComments" @close="showComments = false" />
     <DesignSystemsDialog :open="showDesignSystems" @close="showDesignSystems = false" />
+    <ComponentLibrariesDialog
+      :open="showComponentLibraries"
+      @close="showComponentLibraries = false"
+    />
   </div>
 </template>

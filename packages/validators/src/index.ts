@@ -396,6 +396,33 @@ export const applyDesignSystemSchema = z.object({
   designSystemId: z.string().trim().min(1).max(120).nullable(),
 });
 
+// --- Component libraries (plan/07 4.3) -------------------------------------
+
+export const createLibrarySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).optional(),
+});
+
+export const updateLibrarySchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const addLibraryComponentSchema = z.object({
+  type: z.string().trim().min(1).max(120),
+  label: z.string().trim().min(1).max(200),
+  category: z.string().trim().max(80).optional(),
+  schema: z.object({}).passthrough(), // any JSON object
+  tags: z.array(z.string().trim().max(60)).optional(),
+});
+
+export const updateLibraryComponentSchema = z.object({
+  label: z.string().trim().min(1).max(200).optional(),
+  category: z.string().trim().max(80).optional(),
+  schema: z.object({}).passthrough().optional(),
+  tags: z.array(z.string().trim().max(60)).optional(),
+});
+
 // --- Comments (plan/07 4.6) ------------------------------------------------
 
 export const commentStatusSchema = z.enum(["open", "resolved"]);

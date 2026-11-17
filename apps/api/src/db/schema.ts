@@ -168,3 +168,8 @@ export type ShareRow = typeof shares.$inferSelect;
 export type CommentThreadRow = typeof commentThreads.$inferSelect;
 export type CommentMessageRow = typeof commentMessages.$inferSelect;
 export type DesignSystemRow = typeof designSystems.$inferSelect;
+export { componentLibraries, libraryComponents } from "./component-libraries.schema";
+export type {
+  ComponentLibraryRow,
+  LibraryComponentRow,
+} from "./component-libraries.schema";
