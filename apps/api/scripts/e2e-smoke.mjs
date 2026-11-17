@@ -11,7 +11,8 @@
 // component, export/import bundle, unique name/type), role-based access control
 // (owner/admin/editor/viewer enforcement, member management, 403 for viewers
 // and non-members), team collaboration (WebSocket presence, optimistic
-// concurrency 409, document-update broadcasts), assets validation/raw bytes/delete
+// concurrency 409, document-update broadcasts), API SDK (create/list/read/save
+// via the typed client, 409 through MockupError), assets validation/raw bytes/delete
 // and asset copying on duplicate, hidden/locked flags, AI generate/edit and
 // observability counters.
 //
@@ -185,6 +186,7 @@ function waitForClose(ws, timeout = 5000) {
 
 async function main() {
   console.log(`API E2E smoke — ${API_URL}`);
+  let sdkProject = null;
 
   // Local fixture page for URL-to-UI. The API allows this exact host:port via
   // URL_TO_UI_ALLOWED_HOSTS in CI; every other private address stays blocked.
@@ -1952,6 +1954,60 @@ async function main() {
     console.log("  - skip collaboration checks (DATABASE_URL not set)");
   }
 
+  // --- API SDK (plan/07 4.9) ------------------------------------------------
+  {
+    const { MockupClient, MockupError } = await import(
+      "../../../packages/sdk/dist/index.js"
+    );
+    const sdk = new MockupClient({ baseUrl: API_URL });
+
+    sdkProject = await sdk.createProject({
+      name: `SDK ${Date.now().toString(36)}`,
+      description: "created via SDK",
+    });
+    check("SDK creates a project", Boolean(sdkProject.id), sdkProject.id);
+
+    const sdkList = await sdk.listProjects();
+    check(
+      "SDK lists projects including the new one",
+      sdkList.some((p) => p.id === sdkProject.id),
+    );
+
+    const emptyDoc = await sdk.getDocument(sdkProject.id);
+    check(
+      "SDK reads the empty document with revision 0",
+      emptyDoc.revision === 0 && emptyDoc.document === null,
+      `revision=${emptyDoc.revision}`,
+    );
+
+    // The first save creates the home page (a brand-new document starts at
+    // revision 0), so do it twice before asserting revision advancement.
+    await sdk.saveDocument(sdkProject.id, makeDoc("SDK v1"), "0");
+    const sdkDoc = await sdk.getDocument(sdkProject.id);
+    check(
+      "SDK saves the document and creates the home page",
+      sdkDoc.document?.name === "SDK v1" && sdkDoc.document !== null,
+      JSON.stringify(sdkDoc.document?.name),
+    );
+
+    await sdk.saveDocument(sdkProject.id, makeDoc("SDK v2"), String(sdkDoc.revision));
+    const sdkDoc2 = await sdk.getDocument(sdkProject.id);
+    check(
+      "SDK advances the revision on a second save",
+      sdkDoc2.revision === sdkDoc.revision + 1,
+      `revision=${sdkDoc2.revision}`,
+    );
+
+    // That old baseVersion is now stale, so the save must be rejected 409.
+    let sdkConflict = false;
+    try {
+      await sdk.saveDocument(sdkProject.id, makeDoc("Stale via SDK"), String(sdkDoc.revision));
+    } catch (error) {
+      sdkConflict = error instanceof MockupError && error.statusCode === 409;
+    }
+    check("SDK surfaces 409 on stale baseVersion", sdkConflict, `conflict=${sdkConflict}`);
+  }
+
   // --- Cleanup -------------------------------------------------------------
   for (const id of [
     project.id,
@@ -1960,6 +2016,7 @@ async function main() {
     copy.id,
     dsProject.id,
     dsCopy.id,
+    sdkProject?.id,
   ]) {
     await request("DELETE", `/projects/${id}`);
   }
