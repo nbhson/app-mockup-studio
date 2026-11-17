@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { DbModule } from "./db/db.module";
 import { AccessModule } from "./common/access.module";
+import { CollabModule } from "./common/collab.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PagesModule } from "./modules/pages/pages.module";
@@ -23,6 +24,7 @@ import { SecurityHeadersMiddleware } from "./common/security-headers.middleware"
     ConfigModule.forRoot({ isGlobal: true }),
     DbModule,
     AccessModule,
+    CollabModule,
     MetricsModule,
     ProjectsModule,
     DocumentsModule,

@@ -18,7 +18,7 @@ import type {
   VersionListResponse,
   VersionSummaryDto,
 } from "@ai-mockup-studio/shared-types";
-import { api } from "../services/api";
+import { api, ApiError } from "../services/api";
 import { applyDesignSystemToProject } from "../services/design-systems";
 
 // ---------------------------------------------------------------------------
@@ -64,6 +64,13 @@ export const useDocumentStore = defineStore("document", () => {
   const saveError = ref<string | null>(null);
   const lastSavedAt = ref<Date | null>(null);
 
+  // Optimistic concurrency (plan/07 4.4): `baseVersion` is the document
+  // `updatedAt` this editor last saw. A 409 means a collaborator saved first;
+  // autosave stops until the user reloads the latest version, so their work is
+  // never silently overwritten.
+  const baseVersion = ref<string | null>(null);
+  const saveConflict = ref(false);
+
   // Version history (GĐ 5.2): metadata list + restore state.
   const versions = ref<VersionSummaryDto[]>([]);
   const versionsLoading = ref(false);
@@ -103,7 +110,7 @@ export const useDocumentStore = defineStore("document", () => {
 
   function scheduleAutosave(delay = 1200) {
     cancelAutosave();
-    if (!isDirty.value || !projectId.value) return;
+    if (!isDirty.value || !projectId.value || saveConflict.value) return;
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
       void save();
@@ -280,6 +287,7 @@ export const useDocumentStore = defineStore("document", () => {
         currentPageId: string;
         document: UiDocument | null;
         updatedAt: string;
+        revision: number;
       }>(`/projects/${project}/document`);
       document.value = res.document;
       if (res.currentPageId) currentPageId.value = res.currentPageId;
@@ -299,6 +307,8 @@ export const useDocumentStore = defineStore("document", () => {
       past.value = [];
       future.value = [];
       lastSavedAt.value = res.document ? new Date(res.updatedAt) : null;
+      baseVersion.value = res.document ? String(res.revision) : null;
+      saveConflict.value = false;
       isDirty.value = false;
       saveError.value = null;
       pagesError.value = null;
@@ -341,6 +351,8 @@ export const useDocumentStore = defineStore("document", () => {
     future.value = [];
     isDirty.value = false;
     saveError.value = null;
+    baseVersion.value = String(res.revision);
+    saveConflict.value = false;
     lastSavedAt.value = new Date(res.page.updatedAt);
     versions.value = [];
     versionsError.value = null;
@@ -534,14 +546,16 @@ export const useDocumentStore = defineStore("document", () => {
     try {
       const res = await api.post<DocumentResponse>(
         `/projects/${projectId.value}/document`,
-        { document: document.value },
+        { document: document.value, baseVersion: baseVersion.value },
       );
       // The first save of a brand-new project creates its home page.
       if (res.currentPageId && res.currentPageId !== currentPageId.value) {
         currentPageId.value = res.currentPageId;
         await loadPages().catch(() => undefined);
       }
-      lastSavedAt.value = new Date();
+      baseVersion.value = String(res.revision);
+      saveConflict.value = false;
+      lastSavedAt.value = new Date(res.updatedAt);
       if (editRevision === rev) {
         isDirty.value = false;
       } else {
@@ -549,10 +563,25 @@ export const useDocumentStore = defineStore("document", () => {
         scheduleAutosave(200);
       }
     } catch (e) {
-      saveError.value = e instanceof Error ? e.message : "Save failed";
+      if (e instanceof ApiError && e.statusCode === 409) {
+        // Another user saved after our last read. Stop autosave and ask the
+        // user to reload; never clobber their version.
+        saveConflict.value = true;
+        saveError.value =
+          "Document đã được người khác cập nhật. Tải bản mới nhất để tiếp tục.";
+        cancelAutosave();
+      } else {
+        saveError.value = e instanceof Error ? e.message : "Save failed";
+      }
     } finally {
       isSaving.value = false;
     }
+  }
+
+  /** Discard local state and load the server's latest document after a 409. */
+  async function reloadLatest(): Promise<void> {
+    if (!projectId.value) return;
+    await load(projectId.value);
   }
 
   /** Apply (or detach) a project design system after flushing local edits. */
@@ -572,8 +601,15 @@ export const useDocumentStore = defineStore("document", () => {
       designSystemId.value = response.designSystemId ?? null;
       if (document.value && response.theme) {
         document.value = { ...document.value, theme: response.theme };
-        lastSavedAt.value = new Date();
-      } else if (document.value) {
+      }
+      if (document.value) {
+        // The server bumped every document's revision; refresh our token so the
+        // next autosave is not mistaken for a conflicting write.
+        const latest = await api.get<{
+          document: UiDocument | null;
+          revision: number;
+        }>(`/projects/${projectId.value}/document`);
+        baseVersion.value = latest.document ? String(latest.revision) : null;
         lastSavedAt.value = new Date();
       }
       return response;
@@ -631,6 +667,8 @@ export const useDocumentStore = defineStore("document", () => {
       past.value = [];
       future.value = [];
       isDirty.value = false;
+      baseVersion.value = String(res.revision);
+      saveConflict.value = false;
       lastSavedAt.value = new Date(res.updatedAt);
       editRevision += 1;
       await loadPages().catch(() => undefined);
@@ -657,6 +695,9 @@ export const useDocumentStore = defineStore("document", () => {
     isDirty,
     isSaving,
     saveError,
+    baseVersion,
+    saveConflict,
+    reloadLatest,
     lastSavedAt,
     versions,
     versionsLoading,

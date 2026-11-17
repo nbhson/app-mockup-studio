@@ -103,6 +103,7 @@ export class ProjectDesignSystemController {
           .update(documents)
           .set({
             schema: applyThemeToDocument(schema, theme),
+            revision: row.revision + 1,
             updatedAt: new Date(),
           })
           .where(eq(documents.id, row.id));

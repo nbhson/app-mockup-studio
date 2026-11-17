@@ -29,6 +29,7 @@ import CommentsDialog from "../comments/CommentsDialog.vue";
 import DesignSystemsDialog from "../design-systems/DesignSystemsDialog.vue";
 import ComponentLibrariesDialog from "../component-libraries/ComponentLibrariesDialog.vue";
 import MembersDialog from "../members/MembersDialog.vue";
+import PresenceBar from "./PresenceBar.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -841,6 +842,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="flex items-center gap-1">
+        <PresenceBar :project-id="doc.projectId" class="mr-1" />
         <span
           v-if="exportError || duplicateError"
           class="max-w-40 truncate text-[10px] text-red-500"
@@ -1004,6 +1006,22 @@ onBeforeUnmount(() => {
           {{ exporting === "json" ? "…" : "JSON" }}
         </button>
       </div>
+    </div>
+
+    <div
+      v-if="doc.saveConflict"
+      class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800"
+      role="alert"
+    >
+      <span>
+        ⚠️ {{ doc.saveError }}
+      </span>
+      <button
+        class="shrink-0 rounded border border-amber-300 bg-white px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100"
+        @click="doc.reloadLatest()"
+      >
+        Tải bản mới nhất
+      </button>
     </div>
 
     <div

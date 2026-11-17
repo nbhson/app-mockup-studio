@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -11,7 +12,7 @@ import {
   Put,
   Req,
 } from "@nestjs/common";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import type { Request } from "express";
 import type {
   CreatePageInput,
@@ -30,6 +31,7 @@ import {
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
 import { AccessService } from "../../common/access.service";
+import { PresenceService } from "../../common/presence.service";
 import { documents, pages, projects, versions } from "../../db/schema";
 import {
   blankDocument,
@@ -45,6 +47,7 @@ export class PagesController {
   constructor(
     private readonly db: DbService,
     private readonly access: AccessService,
+    private readonly presence: PresenceService,
   ) {}
 
   @Get()
@@ -125,6 +128,8 @@ export class PagesController {
       projectId,
       page: toPageDto(page as PageRow),
       document: doc.schema as unknown as UiDocument,
+      updatedAt: doc.updatedAt.toISOString(),
+      revision: doc.revision,
     };
   }
 
@@ -202,6 +207,8 @@ export class PagesController {
       projectId,
       page: toPageDto(page as PageRow),
       document: doc.schema as unknown as UiDocument,
+      updatedAt: doc.updatedAt.toISOString(),
+      revision: doc.revision,
     };
   }
 
@@ -228,7 +235,7 @@ export class PagesController {
     @Body() body: SaveDocumentBody,
     @Req() req: Request,
   ): Promise<PageDetailResponse> {
-    await this.access.assertProjectRole(projectId, "editor", req);
+    const user = await this.access.assertProjectRole(projectId, "editor", req);
     const parsed = saveDocumentSchema.parse(body);
     const page = await this.findPage(projectId, pageId);
     const [existing] = await this.db.client
@@ -236,34 +243,52 @@ export class PagesController {
       .from(documents)
       .where(eq(documents.id, page.documentId))
       .limit(1);
+    if (!existing) throw new NotFoundException(`Trang ${pageId} không có document`);
 
-    if (existing) {
-      const [lastVersion] = await this.db.client
-        .select({ createdAt: versions.createdAt })
-        .from(versions)
-        .where(eq(versions.documentId, existing.id))
-        .orderBy(desc(versions.createdAt))
-        .limit(1);
-      const shouldSnapshot =
-        !lastVersion || Date.now() - lastVersion.createdAt.getTime() > 5 * 60 * 1000;
-      if (shouldSnapshot) {
-        await this.db.client.insert(versions).values({
-          documentId: existing.id,
-          snapshot: existing.schema as object,
-          note: "Autosave",
-        });
-      }
+    // Optimistic concurrency (plan/07 4.4) — see documents.controller.
+    const conflict = () =>
+      new ConflictException({
+        message:
+          "Document đã được người khác cập nhật. Hãy tải bản mới nhất trước khi lưu.",
+        currentVersion: String(existing.revision),
+      });
+    if (parsed.baseVersion && parsed.baseVersion !== String(existing.revision)) {
+      throw conflict();
     }
 
+    const [lastVersion] = await this.db.client
+      .select({ createdAt: versions.createdAt })
+      .from(versions)
+      .where(eq(versions.documentId, existing.id))
+      .orderBy(desc(versions.createdAt))
+      .limit(1);
+    const shouldSnapshot =
+      !lastVersion || Date.now() - lastVersion.createdAt.getTime() > 5 * 60 * 1000;
+    if (shouldSnapshot) {
+      await this.db.client.insert(versions).values({
+        documentId: existing.id,
+        snapshot: existing.schema as object,
+        note: "Autosave",
+      });
+    }
+
+    const guard = parsed.baseVersion
+      ? and(
+          eq(documents.id, page.documentId),
+          eq(documents.revision, existing.revision),
+        )
+      : eq(documents.id, page.documentId);
     const [saved] = await this.db.client
       .update(documents)
       .set({
         schema: parsed.document as unknown as object,
         schemaVersion: parsed.document.schemaVersion,
+        revision: existing.revision + 1,
         updatedAt: new Date(),
       })
-      .where(eq(documents.id, page.documentId))
+      .where(guard)
       .returning();
+    if (!saved) throw conflict();
     const [updatedPage] = await this.db.client
       .update(pages)
       .set({ updatedAt: new Date() })
@@ -275,10 +300,19 @@ export class PagesController {
       .set({ updatedAt: new Date() })
       .where(eq(projects.id, projectId));
 
+    const updatedAt = saved.updatedAt.toISOString();
+    this.presence.broadcastDocumentUpdate(projectId, {
+      pageId: page.id,
+      updatedAt,
+      actor: { email: user.email },
+    });
+
     return {
       projectId,
       page: toPageDto(updatedPage as PageRow),
       document: saved.schema as unknown as UiDocument,
+      updatedAt,
+      revision: saved.revision,
     };
   }
 
@@ -319,6 +353,8 @@ export class PagesController {
       projectId,
       page: toPageDto(updated as PageRow),
       document: doc.schema as unknown as UiDocument,
+      updatedAt: doc.updatedAt.toISOString(),
+      revision: doc.revision,
     };
   }
 

@@ -12,6 +12,8 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:3000",
         changeOrigin: true,
+        // Presence WebSocket (plan/07 4.4) upgrades through the same proxy.
+        ws: true,
       },
     },
   },

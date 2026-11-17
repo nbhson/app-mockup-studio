@@ -17,6 +17,7 @@ import type {
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
 import { AccessService } from "../../common/access.service";
+import { PresenceService } from "../../common/presence.service";
 import { documents, pages, projects, versions } from "../../db/schema";
 
 /**
@@ -31,6 +32,7 @@ export class VersionsController {
   constructor(
     private readonly db: DbService,
     private readonly access: AccessService,
+    private readonly presence: PresenceService,
   ) {}
 
   @Get()
@@ -104,7 +106,7 @@ export class VersionsController {
     @Param("projectId") projectId: string,
     @Param("versionId") versionId: string,
   ): Promise<DocumentResponse> {
-    await this.access.assertProjectRole(projectId, "editor", req);
+    const user = await this.access.assertProjectRole(projectId, "editor", req);
     const version = await this.findVersion(projectId, versionId);
 
     const [current] = await this.db.client
@@ -130,6 +132,7 @@ export class VersionsController {
             .set({
               schema: snapshot as unknown as object,
               schemaVersion: snapshot.schemaVersion,
+              revision: current.revision + 1,
               updatedAt: new Date(),
             })
             .where(eq(documents.id, current.id))
@@ -157,11 +160,20 @@ export class VersionsController {
       .set({ currentPageId: page?.id ?? null, updatedAt: new Date() })
       .where(eq(projects.id, projectId));
 
+    if (page) {
+      this.presence.broadcastDocumentUpdate(projectId, {
+        pageId: page.id,
+        updatedAt: saved.updatedAt.toISOString(),
+        actor: { email: user.email },
+      });
+    }
+
     return {
       projectId,
       currentPageId: page?.id ?? "",
       document: saved.schema as unknown as UiDocument,
       updatedAt: saved.updatedAt.toISOString(),
+      revision: saved.revision,
     };
   }
 

@@ -10,7 +10,8 @@
 // apply/switch/cascade delete), component libraries (CRUD, add/update/remove
 // component, export/import bundle, unique name/type), role-based access control
 // (owner/admin/editor/viewer enforcement, member management, 403 for viewers
-// and non-members), assets validation/raw bytes/delete
+// and non-members), team collaboration (WebSocket presence, optimistic
+// concurrency 409, document-update broadcasts), assets validation/raw bytes/delete
 // and asset copying on duplicate, hidden/locked flags, AI generate/edit and
 // observability counters.
 //
@@ -21,6 +22,7 @@
 import { uiDocumentSchema } from "@ai-mockup-studio/validators";
 import { knownComponentTypes } from "@ai-mockup-studio/ui-schema";
 import { Client } from "pg";
+import WebSocket from "ws";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 
@@ -108,6 +110,77 @@ async function expireShareNow(token) {
   } finally {
     await client.end();
   }
+}
+
+/** Open a presence WebSocket and buffer every server frame it receives. */
+function connectPresence(projectId, email) {
+  return new Promise((resolve, reject) => {
+    const query = new URLSearchParams({ projectId });
+    if (email) query.set("email", email);
+    const ws = new WebSocket(
+      `${API_URL.replace(/^http/, "ws")}/ws/presence?${query.toString()}`,
+    );
+    ws.received = [];
+    ws.closeCode = null;
+    ws.on("message", (data) => {
+      try {
+        ws.received.push(JSON.parse(String(data)));
+      } catch {
+        // ignore malformed frames
+      }
+    });
+    ws.on("close", (code) => {
+      ws.closeCode = code;
+    });
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolve(ws);
+    };
+    ws.once("open", settle);
+    // Rejected identities may be closed before the open event is observed.
+    ws.once("close", settle);
+    ws.once("error", reject);
+  });
+}
+
+/** Poll buffered frames for one matching a predicate. */
+function waitForMessage(ws, predicate, label, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const found = ws.received.find(predicate);
+      if (found) {
+        clearInterval(timer);
+        resolve(found);
+      } else if (Date.now() - started > timeout) {
+        clearInterval(timer);
+        reject(new Error(`timeout waiting for ${label}`));
+      }
+    }, 25);
+  });
+}
+
+/** Resolve with the close code (waiting for a close that may have happened). */
+function waitForClose(ws, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      clearTimeout(timer);
+      resolve(ws.closeCode);
+    };
+    const timer = setTimeout(
+      () => reject(new Error("timeout waiting for WebSocket close")),
+      timeout,
+    );
+    if (ws.closeCode !== null) {
+      done();
+      return;
+    }
+    ws.once("close", done);
+    // A close can land between the check above and the listener registration.
+    if (ws.closeCode !== null) done();
+  });
 }
 
 async function main() {
@@ -1728,6 +1801,155 @@ async function main() {
     check("owner can delete the project", true);
   } else {
     console.log("  - skip RBAC checks (DATABASE_URL not set)");
+  }
+
+  // --- Team collaboration (plan/07 4.4) -----------------------------------
+  if (process.env.DATABASE_URL) {
+    const collabSuffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const collaboratorEmail = `collab-${collabSuffix}@example.com`;
+    const ghostEmail = `collab-ghost-${collabSuffix}@example.com`;
+    const ghostProjectId = randomUUID();
+
+    const collabUsers = new Client({ connectionString: process.env.DATABASE_URL });
+    await collabUsers.connect();
+    try {
+      await collabUsers.query(
+        "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
+        [randomUUID(), collaboratorEmail, "Collaborator"],
+      );
+    } finally {
+      await collabUsers.end();
+    }
+
+    const collabProject = (
+      await request("POST", "/projects", {
+        body: { name: `Collab ${collabSuffix}` },
+      })
+    ).payload;
+    await request("POST", `/projects/${collabProject.id}/document`, {
+      body: { document: makeDoc("Collab v1") },
+    });
+    await request("POST", `/projects/${collabProject.id}/members`, {
+      body: { email: collaboratorEmail, role: "viewer" },
+    });
+
+    const ownerWs = await connectPresence(collabProject.id);
+    const viewerWs = await connectPresence(collabProject.id, collaboratorEmail);
+
+    const roster = await waitForMessage(
+      ownerWs,
+      (m) => m.type === "presence" && m.users.length === 2,
+      "presence roster with two users",
+    );
+    check(
+      "two users see each other in presence",
+      roster.users.map((u) => u.email).sort().join(",") ===
+        ["demo@mockup.studio", collaboratorEmail].sort().join(","),
+      JSON.stringify(roster.users),
+    );
+    check(
+      "presence exposes each user's role",
+      roster.users.find((u) => u.email === collaboratorEmail)?.role === "viewer" &&
+        roster.users.find((u) => u.email === "demo@mockup.studio")?.role ===
+          "owner",
+      JSON.stringify(roster.users),
+    );
+
+    const before = (
+      await request("GET", `/projects/${collabProject.id}/document`)
+    ).payload;
+    await request("POST", `/projects/${collabProject.id}/document`, {
+      body: {
+        document: makeDoc("Stale write"),
+        baseVersion: "2000-01-01T00:00:00.000Z",
+      },
+      status: 409,
+    });
+    const afterStale = (
+      await request("GET", `/projects/${collabProject.id}/document`)
+    ).payload;
+    check(
+      "stale save is rejected instead of overwriting",
+      afterStale.document?.name === "Collab v1",
+      JSON.stringify(afterStale.document?.name),
+    );
+
+    const saved = (
+      await request("POST", `/projects/${collabProject.id}/document`, {
+        body: {
+          document: makeDoc("Collab v2"),
+          baseVersion: String(before.revision),
+        },
+      })
+    ).payload;
+    check(
+      "save with the current baseVersion succeeds",
+      saved.document?.name === "Collab v2",
+      JSON.stringify(saved.document?.name),
+    );
+
+    const updateMessage = await waitForMessage(
+      viewerWs,
+      (m) => m.type === "document:updated",
+      "document update broadcast",
+    );
+    check(
+      "collaborators receive document updates in real time",
+      updateMessage.pageId === before.currentPageId &&
+        updateMessage.actor?.email === "demo@mockup.studio",
+      JSON.stringify(updateMessage),
+    );
+
+    await request("POST", `/projects/${collabProject.id}/document`, {
+      body: {
+        document: makeDoc("Second stale write"),
+        baseVersion: String(before.revision),
+      },
+      status: 409,
+    });
+    const afterSecond = (
+      await request("GET", `/projects/${collabProject.id}/document`)
+    ).payload;
+    check(
+      "a second stale write cannot overwrite the newer version",
+      afterSecond.document?.name === "Collab v2",
+      JSON.stringify(afterSecond.document?.name),
+    );
+
+    viewerWs.close();
+    await waitForClose(viewerWs);
+    const soloRoster = await waitForMessage(
+      ownerWs,
+      (m) => m.type === "presence" && m.users.length === 1,
+      "presence roster after leave",
+    );
+    check(
+      "leaving the project removes the user from presence",
+      soloRoster.users[0]?.email === "demo@mockup.studio",
+      JSON.stringify(soloRoster.users),
+    );
+
+    const ghostWs = await connectPresence(collabProject.id, ghostEmail);
+    const ghostCode = await waitForClose(ghostWs);
+    check(
+      "presence rejects unknown identities",
+      ghostCode === 4403,
+      `code=${ghostCode}`,
+    );
+
+    const missingWs = await connectPresence(ghostProjectId);
+    const missingCode = await waitForClose(missingWs);
+    check(
+      "presence rejects unknown projects",
+      missingCode === 4404,
+      `code=${missingCode}`,
+    );
+
+    ownerWs.close();
+    await waitForClose(ownerWs);
+    await request("DELETE", `/projects/${collabProject.id}`);
+  } else {
+    console.log("  - skip collaboration checks (DATABASE_URL not set)");
   }
 
   // --- Cleanup -------------------------------------------------------------

@@ -33,17 +33,31 @@ export class AccessService {
    * unknown user resolves to `null` — it must NOT silently fall back to the
    * demo owner, otherwise a typo/unknown identity would gain owner access.
    */
-  async resolve(req?: Request): Promise<{ id: string; email: string } | null> {
+  async resolve(
+    req?: Request,
+  ): Promise<{ id: string; email: string; name: string | null } | null> {
     const raw = req?.headers?.["x-user-email"];
     const header = Array.isArray(raw) ? raw[0] : raw;
     if (header === undefined || header === "") {
       return this.findDemo();
     }
-    const email = String(header).toLowerCase().trim();
+    return this.resolveEmail(String(header));
+  }
+
+  /**
+   * Resolve an explicit email address to a user. Used by the presence gateway,
+   * which cannot send HTTP headers (browsers can't set them on a WebSocket).
+   * An unknown email resolves to `null`; never falls back to the demo owner.
+   */
+  async resolveEmail(
+    email: string,
+  ): Promise<{ id: string; email: string; name: string | null } | null> {
+    const normalized = email.toLowerCase().trim();
+    if (!normalized) return null;
     const [row] = await this.db.client
-      .select({ id: users.id, email: users.email })
+      .select({ id: users.id, email: users.email, name: users.name })
       .from(users)
-      .where(eq(users.email, email))
+      .where(eq(users.email, normalized))
       .limit(1);
     return row ?? null;
   }
@@ -153,9 +167,13 @@ export class AccessService {
   }
 
   /** Return the demo user or null if it does not exist yet. */
-  private async findDemo(): Promise<{ id: string; email: string } | null> {
+  private async findDemo(): Promise<{
+    id: string;
+    email: string;
+    name: string | null;
+  } | null> {
     const [row] = await this.db.client
-      .select({ id: users.id, email: users.email })
+      .select({ id: users.id, email: users.email, name: users.name })
       .from(users)
       .where(eq(users.email, "demo@mockup.studio"))
       .limit(1);

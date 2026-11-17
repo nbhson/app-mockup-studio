@@ -69,6 +69,10 @@ export const documents = pgTable("documents", {
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   schemaVersion: text("schema_version").notNull().default("0.1.0"),
   schema: jsonb("schema").notNull(),
+  // Optimistic concurrency token (plan/07 4.4). Incremented on every write so
+  // clients can detect that someone else saved first (409) without relying on
+  // timestamp precision.
+  revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("documents_project_idx").on(t.projectId)]);

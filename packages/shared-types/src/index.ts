@@ -36,7 +36,12 @@ export interface UpdateProjectInput {
 
 export interface SaveDocumentBody {
   document: UiDocument;
-  /** Optional base version for optimistic concurrency (left null for MVP). */
+  /**
+   * Optimistic concurrency token (plan/07 4.4): the document `revision` the
+   * client last read, as a string. When it no longer matches the stored
+   * document the save is rejected with 409 instead of silently overwriting
+   * another user's work. Omit it for last-write-wins API clients.
+   */
   baseVersion?: string | null;
 }
 
@@ -47,6 +52,8 @@ export interface DocumentResponse {
   /** null when the project has no document yet (frontend prompts the AI). */
   document: UiDocument | null;
   updatedAt: string;
+  /** Monotonic document revision — send back as `baseVersion` when saving. */
+  revision: number;
 }
 
 // --- Pages (multi-page, plan/07 3.4) ---------------------------------------
@@ -69,6 +76,10 @@ export interface PageDetailResponse {
   projectId: string;
   page: PageSummaryDto;
   document: UiDocument;
+  /** Document version (`updatedAt`), for display only. */
+  updatedAt: string;
+  /** Monotonic document revision — send back as `baseVersion` when saving. */
+  revision: number;
 }
 
 export interface CreatePageInput {
@@ -629,6 +640,44 @@ export interface ProjectAccessDto {
   role: ProjectRole | null;
   access: boolean;
 }
+
+// --- Team collaboration (plan/07 4.4) --------------------------------------
+
+/** A user currently connected to a project's presence channel. */
+export interface PresenceUserDto {
+  id: string;
+  email: string;
+  name: string | null;
+  role: ProjectRole;
+}
+
+/** Server → client presence snapshot (sent on join/leave). */
+export interface PresenceMessage {
+  type: "presence";
+  projectId: string;
+  users: PresenceUserDto[];
+}
+
+/** Server → client notification that the project document changed. */
+export interface DocumentUpdatedMessage {
+  type: "document:updated";
+  projectId: string;
+  pageId: string;
+  /** New document version (`updatedAt`). */
+  updatedAt: string;
+  actor: { email: string };
+}
+
+/** Server → client fatal error right before the socket is closed. */
+export interface PresenceErrorMessage {
+  type: "error";
+  message: string;
+}
+
+export type PresenceServerMessage =
+  | PresenceMessage
+  | DocumentUpdatedMessage
+  | PresenceErrorMessage;
 
 // --- Health -----------------------------------------------------------------
 
