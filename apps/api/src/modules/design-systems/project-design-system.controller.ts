@@ -4,8 +4,10 @@ import {
   NotFoundException,
   Param,
   Post,
+  Req,
 } from "@nestjs/common";
 import { eq, inArray } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   ApplyDesignSystemInput,
   ApplyDesignSystemResponse,
@@ -13,6 +15,7 @@ import type {
 import type { Theme, UiDocument } from "@ai-mockup-studio/ui-schema";
 import { applyDesignSystemSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import {
   designSystems,
   documents,
@@ -27,13 +30,18 @@ import { applyThemeToDocument } from "./design-systems.service";
  */
 @Controller("projects/:projectId/design-system")
 export class ProjectDesignSystemController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Post()
   async apply(
     @Param("projectId") projectId: string,
     @Body() body: ApplyDesignSystemInput,
+    @Req() req: Request,
   ): Promise<ApplyDesignSystemResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const parsed = applyDesignSystemSchema.parse(body);
 

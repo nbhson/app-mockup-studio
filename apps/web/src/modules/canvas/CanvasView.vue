@@ -28,6 +28,7 @@ import ShareDialog from "../share/ShareDialog.vue";
 import CommentsDialog from "../comments/CommentsDialog.vue";
 import DesignSystemsDialog from "../design-systems/DesignSystemsDialog.vue";
 import ComponentLibrariesDialog from "../component-libraries/ComponentLibrariesDialog.vue";
+import MembersDialog from "../members/MembersDialog.vue";
 import DummyDataDialog from "../ai-assistant/DummyDataDialog.vue";
 
 const doc = useDocumentStore();
@@ -52,6 +53,7 @@ const showShare = ref(false);
 const showComments = ref(false);
 const showDesignSystems = ref(false);
 const showComponentLibraries = ref(false);
+const showMembers = ref(false);
 const pageBusy = ref(false);
 const pageError = ref<string | null>(null);
 
@@ -891,6 +893,14 @@ onBeforeUnmount(() => {
         </button>
         <button
           class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          :disabled="!doc.projectId"
+          title="Quản lý thành viên và phân quyền dự án"
+          @click="showMembers = true"
+        >
+          👥 Thành viên
+        </button>
+        <button
+          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Xuất code HTML / React / Vue"
           @click="showCode = true"
@@ -1160,6 +1170,11 @@ onBeforeUnmount(() => {
     <ComponentLibrariesDialog
       :open="showComponentLibraries"
       @close="showComponentLibraries = false"
+    />
+    <MembersDialog
+      :open="showMembers"
+      :project-id="doc.projectId"
+      @close="showMembers = false"
     />
   </div>
 </template>

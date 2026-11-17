@@ -5,8 +5,10 @@ import {
   Param,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   DocumentResponse,
   VersionDetailResponse,
@@ -14,6 +16,7 @@ import type {
 } from "@ai-mockup-studio/shared-types";
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import { documents, pages, projects, versions } from "../../db/schema";
 
 /**
@@ -25,13 +28,18 @@ import { documents, pages, projects, versions } from "../../db/schema";
  */
 @Controller("projects/:projectId/versions")
 export class VersionsController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
   async list(
+    @Req() req: Request,
     @Param("projectId") projectId: string,
     @Query("pageId") pageId?: string,
   ): Promise<VersionListResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
 
     // History is per page: the query string carries a page row id, so resolve
@@ -75,9 +83,11 @@ export class VersionsController {
 
   @Get(":versionId")
   async detail(
+    @Req() req: Request,
     @Param("projectId") projectId: string,
     @Param("versionId") versionId: string,
   ): Promise<VersionDetailResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     const version = await this.findVersion(projectId, versionId);
     const snapshot = version.snapshot as unknown as UiDocument;
     return {
@@ -90,9 +100,11 @@ export class VersionsController {
 
   @Post(":versionId/restore")
   async restore(
+    @Req() req: Request,
     @Param("projectId") projectId: string,
     @Param("versionId") versionId: string,
   ): Promise<DocumentResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const version = await this.findVersion(projectId, versionId);
 
     const [current] = await this.db.client

@@ -8,8 +8,9 @@
 // expiry, revoke), canvas comment threads (element anchors, replies, resolve,
 // status filters, cross-project isolation), custom design systems (token CRUD,
 // apply/switch/cascade delete), component libraries (CRUD, add/update/remove
-// component, export/import bundle, unique name/type), assets
-// validation/raw bytes/delete
+// component, export/import bundle, unique name/type), role-based access control
+// (owner/admin/editor/viewer enforcement, member management, 403 for viewers
+// and non-members), assets validation/raw bytes/delete
 // and asset copying on duplicate, hidden/locked flags, AI generate/edit and
 // observability counters.
 //
@@ -21,6 +22,7 @@ import { uiDocumentSchema } from "@ai-mockup-studio/validators";
 import { knownComponentTypes } from "@ai-mockup-studio/ui-schema";
 import { Client } from "pg";
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 
 const API_URL = (process.env.API_URL ?? "http://localhost:3000/api").replace(/\/$/, "");
 const ORIGIN = new URL(API_URL).origin;
@@ -1455,6 +1457,278 @@ async function main() {
     "metrics group routes",
     metrics.routes.some((route) => route.method === "POST" && route.route === "/api/projects"),
   );
+
+  // --- Role-based access control (plan/07 4.5) -----------------------------
+  if (process.env.DATABASE_URL) {
+    const rbacSuffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const viewerEmail = `viewer-${rbacSuffix}@example.com`;
+    const editorEmail = `editor-${rbacSuffix}@example.com`;
+    const adminEmail = `admin-${rbacSuffix}@example.com`;
+    const outsiderEmail = `outsider-${rbacSuffix}@example.com`;
+    const ghostEmail = `ghost-${rbacSuffix}@example.com`;
+
+    // There is no user-management API in the MVP: create the extra identities
+    // directly so we can exercise role enforcement over HTTP.
+    const usersClient = new Client({ connectionString: process.env.DATABASE_URL });
+    await usersClient.connect();
+    try {
+      for (const [email, name] of [
+        [viewerEmail, "Viewer"],
+        [editorEmail, "Editor"],
+        [adminEmail, "Admin"],
+        [outsiderEmail, "Outsider"],
+      ]) {
+        await usersClient.query(
+          "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
+          [randomUUID(), email, name],
+        );
+      }
+    } finally {
+      await usersClient.end();
+    }
+
+    const as = (email) => ({ "x-user-email": email });
+
+    // The demo user creates a project and is its owner.
+    const rbacProject = (
+      await request("POST", "/projects", { body: { name: `RBAC ${rbacSuffix}` } })
+    ).payload;
+
+    // Seed a document/page so viewers have something to read.
+    await request("POST", `/projects/${rbacProject.id}/document`, {
+      body: { document: makeDoc("RBAC seed") },
+    });
+
+    await request("GET", `/projects/${rbacProject.id}`, {
+      status: 403,
+      headers: as(outsiderEmail),
+    });
+    check("non-members are rejected from a project", true);
+
+    await request("GET", `/projects/${rbacProject.id}`, {
+      status: 403,
+      headers: as(ghostEmail),
+    });
+    check("unknown identities do not inherit demo owner access", true);
+
+    const ownerMembers = (
+      await request("GET", `/projects/${rbacProject.id}/members`)
+    ).payload;
+    check(
+      "owner is listed implicitly with the owner role",
+      ownerMembers.canManage === true &&
+        ownerMembers.members.length === 1 &&
+        ownerMembers.members[0]?.role === "owner",
+      JSON.stringify(ownerMembers),
+    );
+
+    const viewerMember = (
+      await request("POST", `/projects/${rbacProject.id}/members`, {
+        body: { email: viewerEmail, role: "viewer" },
+      })
+    ).payload;
+    const editorMember = (
+      await request("POST", `/projects/${rbacProject.id}/members`, {
+        body: { email: editorEmail, role: "editor" },
+      })
+    ).payload;
+    const adminMember = (
+      await request("POST", `/projects/${rbacProject.id}/members`, {
+        body: { email: adminEmail, role: "admin" },
+      })
+    ).payload;
+    check(
+      "owner adds members with viewer/editor/admin roles",
+      viewerMember.role === "viewer" &&
+        editorMember.role === "editor" &&
+        adminMember.role === "admin" &&
+        viewerMember.user.email === viewerEmail,
+      JSON.stringify({ viewerMember, editorMember, adminMember }),
+    );
+
+    await request("POST", `/projects/${rbacProject.id}/members`, {
+      body: { email: viewerEmail, role: "editor" },
+      status: 400,
+    });
+    check("duplicate membership is rejected", true);
+
+    await request("POST", `/projects/${rbacProject.id}/members`, {
+      body: { email: `nobody-${rbacSuffix}@example.com`, role: "viewer" },
+      status: 404,
+    });
+    check("adding an unknown user is rejected", true);
+
+    const viewerProjects = (
+      await request("GET", "/projects", { headers: as(viewerEmail) })
+    ).payload;
+    check(
+      "members see the shared project in their project list",
+      viewerProjects.some((p) => p.id === rbacProject.id),
+      JSON.stringify(viewerProjects.map((p) => p.id)),
+    );
+
+    const viewerDoc = (
+      await request("GET", `/projects/${rbacProject.id}/document`, {
+        headers: as(viewerEmail),
+      })
+    ).payload;
+    check("viewer can read the document", viewerDoc.projectId === rbacProject.id);
+
+    const viewerPages = (
+      await request("GET", `/projects/${rbacProject.id}/pages`, {
+        headers: as(viewerEmail),
+      })
+    ).payload;
+    check(
+      "viewer can list pages",
+      viewerPages.projectId === rbacProject.id && viewerPages.pages.length >= 1,
+      JSON.stringify(viewerPages.pages?.map((p) => p.id)),
+    );
+
+    await request("POST", `/projects/${rbacProject.id}/document`, {
+      body: { document: makeDoc("Viewer edit") },
+      status: 403,
+      headers: as(viewerEmail),
+    });
+    await request("POST", `/projects/${rbacProject.id}/pages`, {
+      body: { name: "Viewer page" },
+      status: 403,
+      headers: as(viewerEmail),
+    });
+    await request("POST", `/projects/${rbacProject.id}/assets`, {
+      body: {
+        fileName: "viewer.png",
+        mimeType: "image/png",
+        dataBase64: PNG_BASE64,
+      },
+      status: 403,
+      headers: as(viewerEmail),
+    });
+    await request("POST", `/projects/${rbacProject.id}/shares`, {
+      body: { visibility: "public" },
+      status: 403,
+      headers: as(viewerEmail),
+    });
+    await request("POST", `/projects/${rbacProject.id}`, {
+      body: { name: "Renamed by viewer" },
+      status: 403,
+      headers: as(viewerEmail),
+    });
+    check("viewer is read-only across write endpoints", true);
+
+    await request("POST", `/projects/${rbacProject.id}/members`, {
+      body: { email: outsiderEmail, role: "viewer" },
+      status: 403,
+      headers: as(viewerEmail),
+    });
+    check("viewer cannot manage members", true);
+
+    const viewerVersions = (
+      await request("GET", `/projects/${rbacProject.id}/versions`, {
+        headers: as(viewerEmail),
+      })
+    ).payload;
+    check("viewer can read version history", Array.isArray(viewerVersions.versions));
+
+    const editorDoc = (
+      await request("POST", `/projects/${rbacProject.id}/document`, {
+        body: { document: makeDoc("Editor edit") },
+        headers: as(editorEmail),
+      })
+    ).payload;
+    check(
+      "editor can save the document",
+      editorDoc.document?.name === "Editor edit",
+      JSON.stringify(editorDoc.document?.name),
+    );
+
+    await request("POST", `/projects/${rbacProject.id}/members`, {
+      body: { email: outsiderEmail, role: "viewer" },
+      status: 403,
+      headers: as(editorEmail),
+    });
+    check("editor cannot manage members", true);
+
+    await request("DELETE", `/projects/${rbacProject.id}`, {
+      status: 403,
+      headers: as(editorEmail),
+    });
+    check("editor cannot delete the project", true);
+
+    const adminAdded = (
+      await request("POST", `/projects/${rbacProject.id}/members`, {
+        body: { email: outsiderEmail, role: "viewer" },
+        headers: as(adminEmail),
+      })
+    ).payload;
+    check("admin can add members", adminAdded.role === "viewer");
+
+    const adminMembers = (
+      await request("GET", `/projects/${rbacProject.id}/members`, {
+        headers: as(adminEmail),
+      })
+    ).payload;
+    check(
+      "admin sees canManage and every member",
+      adminMembers.canManage === true && adminMembers.members.length === 5,
+      JSON.stringify({ canManage: adminMembers.canManage, count: adminMembers.members.length }),
+    );
+
+    const promoted = (
+      await request(
+        "PATCH",
+        `/projects/${rbacProject.id}/members/${adminAdded.id}`,
+        { body: { role: "editor" }, headers: as(adminEmail) },
+      )
+    ).payload;
+    check("admin can change a member role", promoted.role === "editor");
+
+    const ownerPromotesEditor = (
+      await request(
+        "PATCH",
+        `/projects/${rbacProject.id}/members/${editorMember.id}`,
+        { body: { role: "admin" } },
+      )
+    ).payload;
+    check("owner can promote an editor to admin", ownerPromotesEditor.role === "admin");
+
+    await request(
+      "PATCH",
+      `/projects/${rbacProject.id}/members/${editorMember.id}`,
+      { body: { role: "viewer" }, status: 403, headers: as(adminEmail) },
+    );
+    check("an admin cannot demote another admin", true);
+
+    await request(
+      "PATCH",
+      `/projects/${rbacProject.id}/members/${editorMember.id}`,
+      { body: { role: "editor" } },
+    );
+    check("owner can demote an admin back to editor", true);
+
+    await request("DELETE", `/projects/${rbacProject.id}`, {
+      status: 403,
+      headers: as(adminEmail),
+    });
+    check("admin cannot delete the project", true);
+
+    await request(
+      "DELETE",
+      `/projects/${rbacProject.id}/members/${adminAdded.id}`,
+      { headers: as(adminEmail) },
+    );
+    await request("GET", `/projects/${rbacProject.id}/document`, {
+      status: 403,
+      headers: as(outsiderEmail),
+    });
+    check("removed members lose access", true);
+
+    await request("DELETE", `/projects/${rbacProject.id}`);
+    await request("GET", `/projects/${rbacProject.id}`, { status: 404 });
+    check("owner can delete the project", true);
+  } else {
+    console.log("  - skip RBAC checks (DATABASE_URL not set)");
+  }
 
   // --- Cleanup -------------------------------------------------------------
   for (const id of [

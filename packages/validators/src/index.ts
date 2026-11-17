@@ -423,6 +423,19 @@ export const updateLibraryComponentSchema = z.object({
   tags: z.array(z.string().trim().max(60)).optional(),
 });
 
+// --- Role-based access control (plan/07 4.5) -------------------------------
+
+export const projectRoleSchema = z.enum(["admin", "editor", "viewer"]);
+
+export const addProjectMemberSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+  role: projectRoleSchema,
+});
+
+export const updateProjectMemberRoleSchema = z.object({
+  role: projectRoleSchema,
+});
+
 // --- Comments (plan/07 4.6) ------------------------------------------------
 
 export const commentStatusSchema = z.enum(["open", "resolved"]);

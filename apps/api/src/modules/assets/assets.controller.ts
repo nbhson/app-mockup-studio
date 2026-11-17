@@ -6,9 +6,10 @@ import {
   NotFoundException,
   Param,
   Post,
+  Req,
   Res,
 } from "@nestjs/common";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { desc, eq } from "drizzle-orm";
 import type {
   AssetDto,
@@ -17,6 +18,7 @@ import type {
 } from "@ai-mockup-studio/shared-types";
 import { uploadAssetSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import { assets, projects } from "../../db/schema";
 import { validateAssetData } from "./asset-validation";
 
@@ -44,10 +46,17 @@ function toDto(
 
 @Controller("projects/:projectId/assets")
 export class AssetsController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
-  async list(@Param("projectId") projectId: string): Promise<AssetListResponse> {
+  async list(
+    @Param("projectId") projectId: string,
+    @Req() req: Request,
+  ): Promise<AssetListResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
     const rows = await this.db.client
       .select({
@@ -69,7 +78,9 @@ export class AssetsController {
   async upload(
     @Param("projectId") projectId: string,
     @Body() body: UploadAssetBody,
+    @Req() req: Request,
   ): Promise<AssetDto> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const parsed = uploadAssetSchema.parse(body);
     const data = validateAssetData(parsed.dataBase64, parsed.mimeType);
@@ -92,8 +103,10 @@ export class AssetsController {
   async raw(
     @Param("projectId") projectId: string,
     @Param("assetId") assetId: string,
+    @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     const asset = await this.findAsset(projectId, assetId);
     const data = Buffer.from(asset.data, "base64");
 
@@ -112,7 +125,9 @@ export class AssetsController {
   async remove(
     @Param("projectId") projectId: string,
     @Param("assetId") assetId: string,
+    @Req() req: Request,
   ): Promise<{ ok: boolean }> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const deleted = await this.db.client
       .delete(assets)

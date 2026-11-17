@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { DbModule } from "./db/db.module";
+import { AccessModule } from "./common/access.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PagesModule } from "./modules/pages/pages.module";
@@ -13,6 +14,7 @@ import { AssetsModule } from "./modules/assets/assets.module";
 import { AiModule } from "./modules/ai/ai.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MetricsModule } from "./modules/metrics/metrics.module";
+import { MembersModule } from "./modules/members/members.module";
 import { RequestMetricsMiddleware } from "./common/request-metrics.middleware";
 import { SecurityHeadersMiddleware } from "./common/security-headers.middleware";
 
@@ -20,6 +22,7 @@ import { SecurityHeadersMiddleware } from "./common/security-headers.middleware"
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     DbModule,
+    AccessModule,
     MetricsModule,
     ProjectsModule,
     DocumentsModule,
@@ -32,6 +35,7 @@ import { SecurityHeadersMiddleware } from "./common/security-headers.middleware"
     AssetsModule,
     AiModule,
     HealthModule,
+    MembersModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -8,8 +8,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   CommentListResponse,
   CommentThreadDto,
@@ -23,6 +25,7 @@ import {
   updateCommentThreadSchema,
 } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import {
   commentMessages,
   commentThreads,
@@ -40,14 +43,19 @@ import {
  */
 @Controller("projects/:projectId/comments")
 export class CommentsController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
   async list(
+    @Req() req: Request,
     @Param("projectId") projectId: string,
     @Query("pageId") pageId?: string,
     @Query("status") status?: string,
   ): Promise<CommentListResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
     if (pageId) await this.assertPage(projectId, pageId);
 
@@ -95,7 +103,9 @@ export class CommentsController {
   async create(
     @Param("projectId") projectId: string,
     @Body() body: CreateCommentInput,
+    @Req() req: Request,
   ): Promise<CommentThreadDto> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
     const parsed = createCommentSchema.parse(body);
     await this.assertPage(projectId, parsed.pageId);
@@ -128,7 +138,9 @@ export class CommentsController {
     @Param("projectId") projectId: string,
     @Param("threadId") threadId: string,
     @Body() body: ReplyCommentInput,
+    @Req() req: Request,
   ): Promise<CommentThreadDto> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     const thread = await this.getThread(projectId, threadId);
     const parsed = replyCommentSchema.parse(body);
 
@@ -151,7 +163,9 @@ export class CommentsController {
     @Param("projectId") projectId: string,
     @Param("threadId") threadId: string,
     @Body() body: UpdateCommentThreadInput,
+    @Req() req: Request,
   ): Promise<CommentThreadDto> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const thread = await this.getThread(projectId, threadId);
     const parsed = updateCommentThreadSchema.parse(body);
     const [updated] = await this.db.client

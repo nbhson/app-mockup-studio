@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Put,
+  Req,
 } from "@nestjs/common";
 import { asc, desc, eq } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   CreatePageInput,
   PageDetailResponse,
@@ -27,6 +29,7 @@ import {
 } from "@ai-mockup-studio/validators";
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import { documents, pages, projects, versions } from "../../db/schema";
 import {
   blankDocument,
@@ -39,10 +42,17 @@ import {
 
 @Controller("projects/:projectId/pages")
 export class PagesController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
-  async list(@Param("projectId") projectId: string): Promise<PageListResponse> {
+  async list(
+    @Param("projectId") projectId: string,
+    @Req() req: Request,
+  ): Promise<PageListResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
     await ensureHomePage(this.db, projectId);
     const rows = await this.db.client
@@ -79,7 +89,9 @@ export class PagesController {
   async create(
     @Param("projectId") projectId: string,
     @Body() body: CreatePageInput,
+    @Req() req: Request,
   ): Promise<PageDetailResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const parsed = createPageSchema.parse(body);
     const slug = await uniqueSlug(this.db, projectId, parsed.slug ?? parsed.name);
@@ -121,7 +133,9 @@ export class PagesController {
   async replace(
     @Param("projectId") projectId: string,
     @Body() body: ReplacePagesInput,
+    @Req() req: Request,
   ): Promise<PageListResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const parsed = replacePagesSchema.parse(body);
     const usedSlugs = new Set<string>();
@@ -166,14 +180,16 @@ export class PagesController {
         .where(eq(projects.id, projectId));
     });
 
-    return this.list(projectId);
+    return this.list(projectId, req);
   }
 
   @Get(":pageId")
   async detail(
     @Param("projectId") projectId: string,
     @Param("pageId") pageId: string,
+    @Req() req: Request,
   ): Promise<PageDetailResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     const page = await this.findPage(projectId, pageId);
     const [doc] = await this.db.client
       .select()
@@ -194,13 +210,15 @@ export class PagesController {
   async activate(
     @Param("projectId") projectId: string,
     @Param("pageId") pageId: string,
+    @Req() req: Request,
   ): Promise<PageListResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const page = await this.findPage(projectId, pageId);
     await this.db.client
       .update(projects)
       .set({ currentPageId: page.id, updatedAt: new Date() })
       .where(eq(projects.id, projectId));
-    return this.list(projectId);
+    return this.list(projectId, req);
   }
 
   @Post(":pageId")
@@ -208,7 +226,9 @@ export class PagesController {
     @Param("projectId") projectId: string,
     @Param("pageId") pageId: string,
     @Body() body: SaveDocumentBody,
+    @Req() req: Request,
   ): Promise<PageDetailResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const parsed = saveDocumentSchema.parse(body);
     const page = await this.findPage(projectId, pageId);
     const [existing] = await this.db.client
@@ -267,7 +287,9 @@ export class PagesController {
     @Param("projectId") projectId: string,
     @Param("pageId") pageId: string,
     @Body() body: UpdatePageInput,
+    @Req() req: Request,
   ): Promise<PageDetailResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const parsed = updatePageSchema.parse(body);
     const page = await this.findPage(projectId, pageId);
     const slug =
@@ -304,7 +326,9 @@ export class PagesController {
   async remove(
     @Param("projectId") projectId: string,
     @Param("pageId") pageId: string,
+    @Req() req: Request,
   ): Promise<PageListResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const page = await this.findPage(projectId, pageId);
     const rows = await this.db.client
       .select({ id: pages.id })
@@ -335,7 +359,7 @@ export class PagesController {
         .where(eq(projects.id, projectId));
     }
 
-    return this.list(projectId);
+    return this.list(projectId, req);
   }
 
   private async assertProject(projectId: string): Promise<void> {

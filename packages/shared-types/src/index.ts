@@ -582,6 +582,54 @@ export interface LibraryExportPayload {
   components: Omit<LibraryComponentDto, "id" | "libraryId" | "createdAt">[];
 }
 
+// --- Role-based access control (plan/07 4.5) -------------------------------
+
+export type ProjectRole = "owner" | "admin" | "editor" | "viewer";
+
+/** Ordered role strength: owner > admin > editor > viewer. */
+export const PROJECT_ROLE_RANK: Record<ProjectRole, number> = {
+  viewer: 0,
+  editor: 1,
+  admin: 2,
+  owner: 3,
+};
+
+export interface ProjectMemberDto {
+  id: string;
+  projectId: string;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
+  role: ProjectRole;
+  createdAt: string;
+}
+
+export interface ProjectMemberListResponse {
+  projectId: string;
+  /** True for the current request identity when it is allowed to manage. */
+  canManage: boolean;
+  members: ProjectMemberDto[];
+}
+
+export interface AddProjectMemberInput {
+  email: string;
+  role: "admin" | "editor" | "viewer";
+}
+
+export interface UpdateProjectMemberRoleInput {
+  role: "admin" | "editor" | "viewer";
+}
+
+/** The effective role a member has on a project (owner is implicit). */
+export interface ProjectAccessDto {
+  projectId: string;
+  userId: string;
+  role: ProjectRole | null;
+  access: boolean;
+}
+
 // --- Health -----------------------------------------------------------------
 
 export interface HealthResponse {

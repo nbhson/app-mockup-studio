@@ -48,6 +48,22 @@ export const projects = pgTable("projects", {
   index("projects_design_system_idx").on(t.designSystemId),
 ]);
 
+// plan/07 4.5 — role-based access control. The owner (projects.ownerId) always
+// has the owner role; additional members carry an explicit role. Role rank:
+// owner(3) > admin(2) > editor(1) > viewer(0).
+export const projectMembers = pgTable("project_members", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** admin | editor | viewer (owner is projects.ownerId). */
+  role: text("role").notNull().default("viewer"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("project_members_project_idx").on(t.projectId),
+  index("project_members_user_idx").on(t.userId),
+  uniqueIndex("project_members_project_user_key").on(t.projectId, t.userId),
+]);
+
 export const documents = pgTable("documents", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
@@ -168,6 +184,7 @@ export type ShareRow = typeof shares.$inferSelect;
 export type CommentThreadRow = typeof commentThreads.$inferSelect;
 export type CommentMessageRow = typeof commentMessages.$inferSelect;
 export type DesignSystemRow = typeof designSystems.$inferSelect;
+export type ProjectMemberRow = typeof projectMembers.$inferSelect;
 export { componentLibraries, libraryComponents } from "./component-libraries.schema";
 export type {
   ComponentLibraryRow,

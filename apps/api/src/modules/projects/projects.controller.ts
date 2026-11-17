@@ -6,8 +6,10 @@ import {
   Param,
   Post,
   Body,
+  Req,
 } from "@nestjs/common";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   ProjectDto,
   CreateProjectInput,
@@ -17,7 +19,8 @@ import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { createProjectSchema, updateProjectSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
 import { DemoUserService } from "../../db/demo-user.service";
-import { projects, documents, pages, assets } from "../../db/schema";
+import { AccessService } from "../../common/access.service";
+import { projects, documents, pages, assets, projectMembers } from "../../db/schema";
 import { remapAssetUrls } from "./duplicate-document";
 
 function toDto(row: {
@@ -43,18 +46,38 @@ export class ProjectsController {
   constructor(
     private readonly db: DbService,
     private readonly demo: DemoUserService,
+    private readonly access: AccessService,
   ) {}
 
   @Get()
-  async list(): Promise<ProjectDto[]> {
-    const user = await this.demo.find();
+  async list(@Req() req: Request): Promise<ProjectDto[]> {
+    const user = await this.access.resolve(req);
     if (!user) return [];
-    const rows = await this.db.client
+    // Owned projects + projects the user is explicitly a member of.
+    const memberRows = await this.db.client
+      .select({ projectId: projectMembers.projectId })
+      .from(projectMembers)
+      .where(eq(projectMembers.userId, user.id));
+    const sharedIds = memberRows.map((r) => r.projectId);
+
+    const owned = await this.db.client
       .select()
       .from(projects)
-      .where(eq(projects.ownerId, user.id))
-      .orderBy(desc(projects.updatedAt));
-    return rows.map(toDto);
+      .where(eq(projects.ownerId, user.id));
+
+    const sharedRows =
+      sharedIds.length > 0
+        ? await this.db.client
+            .select()
+            .from(projects)
+            .where(inArray(projects.id, sharedIds))
+        : [];
+
+    const byId = new Map<string, ProjectDto>();
+    for (const row of [...owned, ...sharedRows]) {
+      byId.set(row.id, toDto(row));
+    }
+    return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   @Post()
@@ -76,14 +99,22 @@ export class ProjectsController {
   }
 
   @Get(":id")
-  async get(@Param("id") id: string): Promise<ProjectDto> {
+  async get(
+    @Param("id") id: string,
+    @Req() req: Request,
+  ): Promise<ProjectDto> {
+    await this.access.assertProjectRole(id, "viewer", req);
     const [row] = await this.db.client.select().from(projects).where(eq(projects.id, id)).limit(1);
     if (!row) throw new NotFoundException(`Dự án ${id} không tồn tại`);
     return toDto(row);
   }
 
   @Post(":id/duplicate")
-  async duplicate(@Param("id") id: string): Promise<ProjectDto> {
+  async duplicate(
+    @Param("id") id: string,
+    @Req() req: Request,
+  ): Promise<ProjectDto> {
+    await this.access.assertProjectRole(id, "editor", req);
     const [source] = await this.db.client
       .select()
       .from(projects)
@@ -213,7 +244,12 @@ export class ProjectsController {
   }
 
   @Post(":id")
-  async update(@Param("id") id: string, @Body() body: UpdateProjectInput): Promise<ProjectDto> {
+  async update(
+    @Param("id") id: string,
+    @Body() body: UpdateProjectInput,
+    @Req() req: Request,
+  ): Promise<ProjectDto> {
+    await this.access.assertProjectRole(id, "editor", req);
     const parsed = updateProjectSchema.parse(body);
     const [row] = await this.db.client
       .update(projects)
@@ -225,8 +261,13 @@ export class ProjectsController {
   }
 
   @Delete(":id")
-  async remove(@Param("id") id: string): Promise<{ ok: boolean }> {
+  async remove(
+    @Param("id") id: string,
+    @Req() req: Request,
+  ): Promise<{ ok: boolean }> {
+    await this.access.assertProjectRole(id, "owner", req);
     await this.db.client.delete(documents).where(eq(documents.projectId, id));
+    await this.db.client.delete(projectMembers).where(eq(projectMembers.projectId, id));
     await this.db.client.delete(projects).where(eq(projects.id, id));
     return { ok: true };
   }

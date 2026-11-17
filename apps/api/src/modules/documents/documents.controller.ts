@@ -5,12 +5,15 @@ import {
   Param,
   Post,
   Body,
+  Req,
 } from "@nestjs/common";
 import { desc, eq } from "drizzle-orm";
+import type { Request } from "express";
 import type { DocumentResponse, SaveDocumentBody } from "@ai-mockup-studio/shared-types";
 import { saveDocumentSchema } from "@ai-mockup-studio/validators";
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import { projects, documents, pages, versions } from "../../db/schema";
 import { ensureHomePage, uniqueSlug } from "../pages/pages.service";
 
@@ -21,10 +24,17 @@ import { ensureHomePage, uniqueSlug } from "../pages/pages.service";
  */
 @Controller("projects/:projectId/document")
 export class DocumentsController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
-  async get(@Param("projectId") projectId: string): Promise<DocumentResponse> {
+  async get(
+    @Param("projectId") projectId: string,
+    @Req() req: Request,
+  ): Promise<DocumentResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     const [project] = await this.db.client
       .select()
       .from(projects)
@@ -60,7 +70,9 @@ export class DocumentsController {
   async save(
     @Param("projectId") projectId: string,
     @Body() body: SaveDocumentBody,
+    @Req() req: Request,
   ): Promise<DocumentResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     const parsed = saveDocumentSchema.parse(body);
     const [project] = await this.db.client
       .select()

@@ -6,8 +6,10 @@ import {
   NotFoundException,
   Param,
   Post,
+  Req,
 } from "@nestjs/common";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   CreateShareInput,
   ShareDto,
@@ -15,6 +17,7 @@ import type {
 } from "@ai-mockup-studio/shared-types";
 import { createShareSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import { projects, shares } from "../../db/schema";
 import {
   createShareToken,
@@ -30,10 +33,17 @@ import {
  */
 @Controller("projects/:projectId/shares")
 export class SharesController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
-  async list(@Param("projectId") projectId: string): Promise<ShareListResponse> {
+  async list(
+    @Param("projectId") projectId: string,
+    @Req() req: Request,
+  ): Promise<ShareListResponse> {
+    await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
     const rows = await this.db.client
       .select()
@@ -48,7 +58,9 @@ export class SharesController {
   async create(
     @Param("projectId") projectId: string,
     @Body() body: CreateShareInput,
+    @Req() req: Request,
   ): Promise<ShareDto> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const parsed = createShareSchema.parse(body);
     const [row] = await this.db.client
@@ -72,7 +84,9 @@ export class SharesController {
   async revoke(
     @Param("projectId") projectId: string,
     @Param("shareId") shareId: string,
+    @Req() req: Request,
   ): Promise<ShareListResponse> {
+    await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const [share] = await this.db.client
       .select()
@@ -88,7 +102,7 @@ export class SharesController {
         .where(eq(shares.id, share.id));
     }
 
-    return this.list(projectId);
+    return this.list(projectId, req);
   }
 
   private async assertProject(projectId: string): Promise<void> {
