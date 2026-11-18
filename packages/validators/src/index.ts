@@ -467,6 +467,27 @@ export const transferProjectSchema = z.object({
   organizationId: z.string().uuid().nullable(),
 });
 
+// --- Plugin ecosystem (plan/07 4.10) ---------------------------------------
+// The manifest `main` source is compiled lazily in a sandbox; we validate the
+// declared shape here but never execute user-controlled code via validation.
+
+export const pluginPermissionSchema = z.enum(["read", "write"]);
+
+export const pluginManifestSchema = z.object({
+  id: z.string().trim().min(1).max(100),
+  name: z.string().trim().min(1).max(100),
+  version: z.string().trim().min(1).max(32),
+  description: z.string().max(500).optional(),
+  author: z.string().max(200).optional(),
+  apiVersion: z.number().int().positive(),
+  permissions: z.array(pluginPermissionSchema).min(1),
+  main: z.string().trim().min(1),
+});
+
+export const runPluginSchema = z.object({
+  selection: z.unknown().optional(),
+});
+
 // --- Comments (plan/07 4.6) ------------------------------------------------
 
 export const commentStatusSchema = z.enum(["open", "resolved"]);

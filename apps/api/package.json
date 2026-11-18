@@ -22,6 +22,7 @@
     "@ai-mockup-studio/ai-core": "workspace:*",
     "@ai-mockup-studio/ai-prompts": "workspace:*",
     "@ai-mockup-studio/design-system": "workspace:*",
+    "@ai-mockup-studio/plugins": "workspace:*",
     "@ai-mockup-studio/shared-types": "workspace:*",
     "@ai-mockup-studio/ui-renderer": "workspace:*",
     "@ai-mockup-studio/ui-schema": "workspace:*",

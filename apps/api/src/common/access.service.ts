@@ -78,7 +78,7 @@ export class AccessService {
     projectId: string,
     minRole: ProjectRole,
     req?: Request,
-  ): Promise<{ id: string; email: string; role: ProjectRole }> {
+  ): Promise<{ id: string; email: string; name: string | null; role: ProjectRole }> {
     const user = await this.resolve(req);
     if (!user) throw new ForbiddenException("Không xác định được người dùng");
 

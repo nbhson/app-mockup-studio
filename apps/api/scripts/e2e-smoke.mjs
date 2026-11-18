@@ -2178,6 +2178,99 @@ async function main() {
     console.log("  - skip organization checks (DATABASE_URL not set)");
   }
 
+  // --- Plugin ecosystem (plan/07 4.10) -------------------------------------
+  {
+    const plugins = (await request("GET", "/plugins")).payload;
+    check(
+      "plugin catalog lists built-in plugins",
+      Array.isArray(plugins.plugins) && plugins.plugins.some((p) => p.id === "doc-analyzer"),
+      JSON.stringify(plugins.plugins?.map((p) => p.id)),
+    );
+
+    const detail = (await request("GET", "/plugins/doc-analyzer")).payload;
+    check(
+      "plugin detail includes the full manifest",
+      detail.id === "doc-analyzer" && typeof detail.manifest?.main === "string",
+    );
+
+    // Seed the plugin project with a few text nodes.
+    const pluginProject = (
+      await request("POST", "/projects", {
+        body: { name: `Plugin ${Date.now().toString(36)}` },
+      })
+    ).payload;
+    await request("POST", `/projects/${pluginProject.id}/document`, {
+      body: {
+        document: {
+          ...makeDoc("plugin base"),
+          root: {
+            id: "root",
+            type: "layout.container",
+            children: [
+              { id: "t1", type: "typography.text", props: { text: "lower case A" } },
+              { id: "t2", type: "typography.text", props: { text: "lower case B" } },
+            ],
+          },
+        },
+      },
+    });
+
+    // Read-only analyzer: returns stats and does not change the document.
+    const analyzeRun = (
+      await request("POST", `/projects/${pluginProject.id}/plugins/doc-analyzer/run`, {
+        body: {},
+      })
+    ).payload;
+    check(
+      "read-only plugin returns stats without changing the document",
+      analyzeRun.changedDocument === false &&
+        analyzeRun.returnValue?.textNodes === 2 &&
+        analyzeRun.timedOut === false,
+      JSON.stringify(analyzeRun.returnValue),
+    );
+
+    // Write plugin: upper-cases the text and persists a new document.
+    const upperRun = (
+      await request("POST", `/projects/${pluginProject.id}/plugins/text-uppercase/run`, {
+        body: {},
+      })
+    ).payload;
+    check(
+      "write plugin transforms and persists the document",
+      upperRun.changedDocument === true &&
+        upperRun.document?.document?.root?.children?.[0]?.props?.text === "LOWER CASE A" &&
+        upperRun.returnValue?.changed === 2,
+      JSON.stringify(upperRun.document?.document?.root?.children?.map((c) => c.props?.text)),
+    );
+
+    const afterRun = (
+      await request("GET", `/projects/${pluginProject.id}/document`)
+    ).payload;
+    check(
+      "plugin-written document is saved through the real document endpoint",
+      afterRun.document?.root?.children?.[0]?.props?.text === "LOWER CASE A" &&
+        afterRun.document?.root?.children?.[1]?.props?.text === "LOWER CASE B",
+      JSON.stringify(afterRun.document?.root?.children?.map((c) => c.props?.text)),
+    );
+
+    // A missing plugin is rejected.
+    await request("POST", `/projects/${pluginProject.id}/plugins/nope/run`, {
+      body: {},
+      status: 404,
+    });
+    check("running an unknown plugin is rejected", true);
+
+    // Non-members cannot run plugins on a project.
+    await request("POST", `/projects/${project.id}/plugins/doc-analyzer/run`, {
+      body: {},
+      status: 403,
+      headers: { "x-user-email": `plugin-outsider-${Date.now().toString(36)}@example.com` },
+    });
+    check("non-members cannot run plugins", true);
+
+    await request("DELETE", `/projects/${pluginProject.id}`);
+  }
+
   // --- Cleanup -------------------------------------------------------------
   for (const id of [
     project.id,

@@ -208,6 +208,9 @@ importers:
       '@ai-mockup-studio/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
+      '@ai-mockup-studio/plugins':
+        specifier: workspace:*
+        version: link:../../packages/plugins
       '@ai-mockup-studio/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -367,6 +370,22 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  packages/plugins:
+    dependencies:
+      '@ai-mockup-studio/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      tsup:
+        specifier: ^9.0.0
+        version: 9.0.0(jiti@2.7.0)(postcss@8.5.32)(tsx@4.23.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.1.0
+        version: 5.1.0(@types/node@22.20.5)(vite@8.3.7(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
 
   packages/sdk:
     dependencies:

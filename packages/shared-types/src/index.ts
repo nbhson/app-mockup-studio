@@ -681,6 +681,64 @@ export type PresenceServerMessage =
   | DocumentUpdatedMessage
   | PresenceErrorMessage;
 
+// --- Plugin ecosystem (plan/07 4.10) ----------------------------------------
+
+/** Permissions a plugin may declare. `write` implies `read`. */
+export type PluginPermission = "read" | "write";
+
+/** A plugin's manifest — metadata + the sandbox entrypoint source. */
+export interface PluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  /** Plugin API contract version this plugin was built against. */
+  apiVersion: number;
+  permissions: PluginPermission[];
+  /** JavaScript function source `function main(api) { ... }`, run in a VM sandbox. */
+  main: string;
+}
+
+export interface PluginInfoDto {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  apiVersion: number;
+  permissions: PluginPermission[];
+}
+
+export interface PluginListResponse {
+  plugins: PluginInfoDto[];
+}
+
+export interface PluginDetailResponse extends PluginInfoDto {
+  /** Full manifest (includes the sandbox source), only shown to project editors. */
+  manifest: PluginManifest;
+}
+
+export interface RunPluginInput {
+  /** Optional request context passed to the plugin as `api.selection`. */
+  selection?: unknown;
+}
+
+export interface PluginRunResult {
+  pluginId: string;
+  /** What the plugin's `main` returned (plain JSON). */
+  returnValue: unknown;
+  /** Messages logged by the plugin via `api.app.log`. */
+  logs: string[];
+  /** True when the plugin updated the document through `api.document.update`. */
+  changedDocument: boolean;
+  /** The updated document when `changedDocument`, else null. */
+  document: DocumentResponse | null;
+  /** True when the plugin hit the sandbox execution time limit. */
+  timedOut: boolean;
+}
+
+
 // --- Organization workspace (plan/07 4.11) ----------------------------------
 
 /** Org roles: owner (implicit, `organizations.ownerId`) > admin > member. */

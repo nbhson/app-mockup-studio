@@ -104,7 +104,7 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   case against API đang chạy; kiểm tra schema, id trùng, viewport, markup lạ,
   intent coverage, fallback rate và lưu report JSON nếu đặt `EVAL_OUT`.
   Với mock provider, kết quả là baseline cấu trúc; điền key để đo LLM thật.
-- `pnpm --filter @ai-mockup-studio/api e2e:api` — 209 check HTTP end-to-end:
+- `pnpm --filter @ai-mockup-studio/api e2e:api` — 216 check HTTP end-to-end:
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, multi-page CRUD/activate/replace/delete + copy pages,
   public/private share links (password, expiry 410, revoke, cascade),
@@ -119,12 +119,14 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   client create/list/read/save, 409 qua MockupError), organization workspace
   (tạo tổ chức, thêm member/admin, role fallback admin→editor & member→viewer
   trên project thuộc org, transfer project vào/ra org, org list cho member,
-  cascade xóa), asset validation/raw
+  cascade xóa), plugin ecosystem (catalog built-in, chạy sandbox VM, đọc-only
+  không ghi, write plugin lưu qua document endpoint thật, từ chối plugin không
+  tồn tại, non-member 403), asset validation/raw
   bytes, copy assets khi duplicate, hidden/locked layer flags, responsive
   overrides, AI
   generate/edit/critique/dummy-data/responsive/recommend-components/image-to-ui/
   url-to-ui (SSRF + redirect)/design-reference/multi-page, metrics.
-- `pnpm test` — 228 unit test (API 133, renderer 28, web 61, SDK 6) cho store selection,
+- `pnpm test` — 236 unit test (API 133, renderer 28, web 61, SDK 6, plugins 8) cho store selection,
   patch/clone, group move, layer lock, diff version, multi-page store,
   share token/password/expiry validation, design system token apply,
   component library serialize/parse, member DTO/role badge helpers,
@@ -212,6 +214,13 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   thắng); project owner chuyển project vào/ra org; project của org hiện trong
   list của mọi thành viên; các endpoint `/organizations/*` đều kiểm tra quyền
   ở backend
+- [x] Plugin ecosystem: gói `@ai-mockup-studio/plugins` — sandbox VM (`node:vm`)
+  không cho truy cập `process`/`require`/network; plugin manifest (permissions
+  read/write, entrypoint `main(api)`); API hạn chế (đọc clone document,
+  `update` có quyền write, log); timeout chống loop vô hạn; catalog built-in
+  (analyzer/uppercase/layout-checker) làm marketplace tối giản; chạy plugin
+  qua endpoint và lưu document bằng chính đường lưu thật (revision bump +
+  broadcast), đọc-only không thể ghi
 - [x] Responsive preview desktop/tablet/mobile + override style theo breakpoint
   (inspector & resize ghi vào `responsive.tablet/mobile`, desktop giữ nguyên)
 - [x] Version history: snapshot tự động (throttle 5 phút), xem, so sánh và khôi phục
@@ -229,7 +238,7 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   (`REDIS_URL`, fallback an toàn về in-memory khi Redis mất)
 - [x] AI evaluation: test set 8 prompt + 3 edit case, metric cấu trúc/intent/fallback
 - [x] Performance: 601 node render/selection ổn định, guard test trong CI
-- [x] CI workflow (build + typecheck + test + API smoke 209 check + AI eval với Postgres)
+- [x] CI workflow (build + typecheck + test + API smoke 216 check + AI eval với Postgres)
 - [x] Runbook deploy production (env, migrate, systemd, Nginx, health, rollback)
 - [ ] Deploy/rollback thực tế lên môi trường production (cần hạ tầng/host thật)
 
