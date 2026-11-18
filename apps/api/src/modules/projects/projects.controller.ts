@@ -16,17 +16,17 @@ import type {
   UpdateProjectInput,
 } from "@ai-mockup-studio/shared-types";
 import type { UiDocument } from "@ai-mockup-studio/ui-schema";
-import { createProjectSchema, updateProjectSchema } from "@ai-mockup-studio/validators";
+import { createProjectSchema, transferProjectSchema, updateProjectSchema } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
-import { DemoUserService } from "../../db/demo-user.service";
 import { AccessService } from "../../common/access.service";
-import { projects, documents, pages, assets, projectMembers } from "../../db/schema";
+import { projects, documents, pages, assets, projectMembers, organizations } from "../../db/schema";
 import { remapAssetUrls } from "./duplicate-document";
 
 function toDto(row: {
   id: string;
   name: string;
   description: string | null;
+  organizationId: string | null;
   designSystemId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -35,6 +35,7 @@ function toDto(row: {
     id: row.id,
     name: row.name,
     description: row.description,
+    organizationId: row.organizationId ?? null,
     designSystemId: row.designSystemId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -45,7 +46,6 @@ function toDto(row: {
 export class ProjectsController {
   constructor(
     private readonly db: DbService,
-    private readonly demo: DemoUserService,
     private readonly access: AccessService,
   ) {}
 
@@ -53,12 +53,23 @@ export class ProjectsController {
   async list(@Req() req: Request): Promise<ProjectDto[]> {
     const user = await this.access.resolve(req);
     if (!user) return [];
-    // Owned projects + projects the user is explicitly a member of.
+    // Owned projects + projects the user is explicitly a member of + projects
+    // shared via the user's organizations (plan/07 4.11).
     const memberRows = await this.db.client
       .select({ projectId: projectMembers.projectId })
       .from(projectMembers)
       .where(eq(projectMembers.userId, user.id));
     const sharedIds = memberRows.map((r) => r.projectId);
+    const orgIds = await this.access.userOrganizationIds(user.id);
+    const orgProjectRows =
+      orgIds.length > 0
+        ? await this.db.client
+            .select()
+            .from(projects)
+            .where(
+              inArray(projects.organizationId, orgIds),
+            )
+        : [];
 
     const owned = await this.db.client
       .select()
@@ -74,16 +85,19 @@ export class ProjectsController {
         : [];
 
     const byId = new Map<string, ProjectDto>();
-    for (const row of [...owned, ...sharedRows]) {
+    for (const row of [...owned, ...sharedRows, ...orgProjectRows]) {
       byId.set(row.id, toDto(row));
     }
     return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   @Post()
-  async create(@Body() body: CreateProjectInput): Promise<ProjectDto> {
+  async create(
+    @Body() body: CreateProjectInput,
+    @Req() req: Request,
+  ): Promise<ProjectDto> {
     const parsed = createProjectSchema.parse(body);
-    const user = await this.demo.find();
+    const user = await this.access.resolve(req);
     if (!user) {
       throw new NotFoundException("Demo user chưa tồn tại — chạy `pnpm db:push && pnpm db:seed`");
     }
@@ -257,6 +271,40 @@ export class ProjectsController {
       .where(eq(projects.id, id))
       .returning();
     if (!row) throw new NotFoundException(`Dự án ${id} không tồn tại`);
+    return toDto(row);
+  }
+
+  /**
+   * Transfer the project to an organization workspace (plan/07 4.11). Only the
+   * project owner can do this. `organizationId: null` returns the project to a
+   * personal project.
+   */
+  @Post(":id/organization")
+  async transfer(
+    @Param("id") id: string,
+    @Body() body: { organizationId: string | null },
+    @Req() req: Request,
+  ): Promise<ProjectDto> {
+    await this.access.assertProjectRole(id, "owner", req);
+    const parsed = transferProjectSchema.parse(body);
+
+    if (parsed.organizationId !== null) {
+      // Verify the target org exists and the user has admin/owner access.
+      await this.access.assertOrgRole(parsed.organizationId, "admin", req);
+      const [org] = await this.db.client
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, parsed.organizationId))
+        .limit(1);
+      if (!org) throw new NotFoundException(`Tổ chức ${parsed.organizationId} không tồn tại.`);
+    }
+
+    const [row] = await this.db.client
+      .update(projects)
+      .set({ organizationId: parsed.organizationId, updatedAt: new Date() })
+      .where(eq(projects.id, id))
+      .returning();
+    if (!row) throw new NotFoundException(`Dự án ${id} không tồn tại.`);
     return toDto(row);
   }
 

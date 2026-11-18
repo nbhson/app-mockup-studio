@@ -104,7 +104,7 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   case against API đang chạy; kiểm tra schema, id trùng, viewport, markup lạ,
   intent coverage, fallback rate và lưu report JSON nếu đặt `EVAL_OUT`.
   Với mock provider, kết quả là baseline cấu trúc; điền key để đo LLM thật.
-- `pnpm --filter @ai-mockup-studio/api e2e:api` — 192 check HTTP end-to-end:
+- `pnpm --filter @ai-mockup-studio/api e2e:api` — 209 check HTTP end-to-end:
   project CRUD/duplicate, document save/load, version restore (thuận nghịch),
   isolation giữa project, multi-page CRUD/activate/replace/delete + copy pages,
   public/private share links (password, expiry 410, revoke, cascade),
@@ -116,12 +116,15 @@ generate/edit chạy được offline. Điền key + `OPENAI_BASE_URL` trong
   member management, 403 cho viewer và non-member), team collaboration
   (WebSocket presence 2 user, optimistic concurrency 409 không ghi đè,
   broadcast document update, leave/unknown identity/project), API SDK (typed
-  client create/list/read/save, 409 qua MockupError), asset validation/raw
+  client create/list/read/save, 409 qua MockupError), organization workspace
+  (tạo tổ chức, thêm member/admin, role fallback admin→editor & member→viewer
+  trên project thuộc org, transfer project vào/ra org, org list cho member,
+  cascade xóa), asset validation/raw
   bytes, copy assets khi duplicate, hidden/locked layer flags, responsive
   overrides, AI
   generate/edit/critique/dummy-data/responsive/recommend-components/image-to-ui/
   url-to-ui (SSRF + redirect)/design-reference/multi-page, metrics.
-- `pnpm test` — 224 unit test (API 129, renderer 28, web 61, SDK 6) cho store selection,
+- `pnpm test` — 228 unit test (API 133, renderer 28, web 61, SDK 6) cho store selection,
   patch/clone, group move, layer lock, diff version, multi-page store,
   share token/password/expiry validation, design system token apply,
   component library serialize/parse, member DTO/role badge helpers,
@@ -203,6 +206,12 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   CRUD/duplicate, document get/save với optimistic concurrency, pages,
   versions, members), base URL + identity qua header, lỗi thành `MockupError`
   giữ status code; đã chạy E2E qua SDK thật
+- [x] Organization workspace: tạo tổ chức (org owner ẩn), thêm member/admin,
+  danh sách/quản lý member; dự án có thể thuộc org (`organizationId`) — role
+  org fallback: owner/admin → editor, member → viewer (member trực tiếp luôn
+  thắng); project owner chuyển project vào/ra org; project của org hiện trong
+  list của mọi thành viên; các endpoint `/organizations/*` đều kiểm tra quyền
+  ở backend
 - [x] Responsive preview desktop/tablet/mobile + override style theo breakpoint
   (inspector & resize ghi vào `responsive.tablet/mobile`, desktop giữ nguyên)
 - [x] Version history: snapshot tự động (throttle 5 phút), xem, so sánh và khôi phục
@@ -220,7 +229,7 @@ Runbook deploy production (env, migrate, systemd, Nginx, health, rollback):
   (`REDIS_URL`, fallback an toàn về in-memory khi Redis mất)
 - [x] AI evaluation: test set 8 prompt + 3 edit case, metric cấu trúc/intent/fallback
 - [x] Performance: 601 node render/selection ổn định, guard test trong CI
-- [x] CI workflow (build + typecheck + test + API smoke 192 check + AI eval với Postgres)
+- [x] CI workflow (build + typecheck + test + API smoke 209 check + AI eval với Postgres)
 - [x] Runbook deploy production (env, migrate, systemd, Nginx, health, rollback)
 - [ ] Deploy/rollback thực tế lên môi trường production (cần hạ tầng/host thật)
 

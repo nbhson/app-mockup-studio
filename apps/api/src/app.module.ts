@@ -16,6 +16,7 @@ import { AiModule } from "./modules/ai/ai.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MetricsModule } from "./modules/metrics/metrics.module";
 import { MembersModule } from "./modules/members/members.module";
+import { OrganizationsModule } from "./modules/organizations/organizations.module";
 import { RequestMetricsMiddleware } from "./common/request-metrics.middleware";
 import { SecurityHeadersMiddleware } from "./common/security-headers.middleware";
 
@@ -38,6 +39,7 @@ import { SecurityHeadersMiddleware } from "./common/security-headers.middleware"
     AiModule,
     HealthModule,
     MembersModule,
+    OrganizationsModule,
   ],
 })
 export class AppModule implements NestModule {

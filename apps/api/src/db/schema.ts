@@ -36,6 +36,10 @@ export const projects = pgTable("projects", {
   name: text("name").notNull(),
   description: text("description"),
   ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Organization workspace (plan/07 4.11); null = personal project. */
+  organizationId: text("organization_id").references(() => organizations.id, {
+    onDelete: "set null",
+  }),
   currentPageId: text("current_page_id"),
   /** Active custom design system (plan/07 4.8); null = document themes. */
   designSystemId: text("design_system_id").references(() => designSystems.id, {
@@ -46,6 +50,7 @@ export const projects = pgTable("projects", {
 }, (t) => [
   index("projects_owner_idx").on(t.ownerId),
   index("projects_design_system_idx").on(t.designSystemId),
+  index("projects_organization_idx").on(t.organizationId),
 ]);
 
 // plan/07 4.5 — role-based access control. The owner (projects.ownerId) always
@@ -62,6 +67,32 @@ export const projectMembers = pgTable("project_members", {
   index("project_members_project_idx").on(t.projectId),
   index("project_members_user_idx").on(t.userId),
   uniqueIndex("project_members_project_user_key").on(t.projectId, t.userId),
+]);
+
+// plan/07 4.11 — organization workspace. An organization owns member users and
+// projects (`projects.organizationId`). The org owner is implicit via
+// `organizations.ownerId`; admins/members are explicit rows. Org roles grant
+// default project access: owner/admin → editor, member → viewer.
+export const organizations = pgTable("organizations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("organizations_owner_idx").on(t.ownerId)]);
+
+export const organizationMembers = pgTable("organization_members", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** admin (manage members + projects) or member (read/use shared projects). */
+  role: text("role").notNull().default("member"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("organization_members_org_user_key").on(t.organizationId, t.userId),
+  index("organization_members_user_idx").on(t.userId),
 ]);
 
 export const documents = pgTable("documents", {
@@ -189,6 +220,8 @@ export type CommentThreadRow = typeof commentThreads.$inferSelect;
 export type CommentMessageRow = typeof commentMessages.$inferSelect;
 export type DesignSystemRow = typeof designSystems.$inferSelect;
 export type ProjectMemberRow = typeof projectMembers.$inferSelect;
+export type OrganizationRow = typeof organizations.$inferSelect;
+export type OrgMemberRow = typeof organizationMembers.$inferSelect;
 export { componentLibraries, libraryComponents } from "./component-libraries.schema";
 export type {
   ComponentLibraryRow,

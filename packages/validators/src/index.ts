@@ -436,6 +436,37 @@ export const updateProjectMemberRoleSchema = z.object({
   role: projectRoleSchema,
 });
 
+// --- Organization workspace (plan/07 4.11) ---------------------------------
+
+export const organizationNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Tên tổ chức không được để trống")
+  .max(100);
+
+export const createOrganizationSchema = z.object({
+  name: organizationNameSchema,
+});
+
+export const updateOrganizationSchema = z.object({
+  name: organizationNameSchema.optional(),
+});
+
+export const organizationMemberRoleSchema = z.enum(["admin", "member"]);
+
+export const addOrganizationMemberSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+  role: organizationMemberRoleSchema,
+});
+
+export const updateOrganizationMemberRoleSchema = z.object({
+  role: organizationMemberRoleSchema,
+});
+
+export const transferProjectSchema = z.object({
+  organizationId: z.string().uuid().nullable(),
+});
+
 // --- Comments (plan/07 4.6) ------------------------------------------------
 
 export const commentStatusSchema = z.enum(["open", "resolved"]);

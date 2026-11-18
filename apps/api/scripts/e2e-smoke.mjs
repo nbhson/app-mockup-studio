@@ -2008,6 +2008,176 @@ async function main() {
     check("SDK surfaces 409 on stale baseVersion", sdkConflict, `conflict=${sdkConflict}`);
   }
 
+  // --- Organization workspace (plan/07 4.11) -------------------------------
+  if (process.env.DATABASE_URL) {
+    const orgSuffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const orgMemberEmail = `org-member-${orgSuffix}@example.com`;
+    const orgAdminEmail = `org-admin-${orgSuffix}@example.com`;
+    const orgOutsiderEmail = `org-outsider-${orgSuffix}@example.com`;
+
+    const usersClient = new Client({ connectionString: process.env.DATABASE_URL });
+    await usersClient.connect();
+    try {
+      for (const [email, name] of [
+        [orgMemberEmail, "Org Member"],
+        [orgAdminEmail, "Org Admin"],
+        [orgOutsiderEmail, "Org Outsider"],
+      ]) {
+        await usersClient.query(
+          "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
+          [randomUUID(), email, name],
+        );
+      }
+    } finally {
+      await usersClient.end();
+    }
+
+    const as = (email) => ({ "x-user-email": email });
+
+    // The demo user creates an organization and owns it.
+    const org = (
+      await request("POST", "/organizations", {
+        body: { name: `Studio Org ${orgSuffix}` },
+      })
+    ).payload;
+    check("owner creates an organization", Boolean(org.id) && org.ownerId !== null, org.id);
+
+    const orgs = (await request("GET", "/organizations")).payload;
+    check(
+      "owner sees the organization in their org list",
+      orgs.organizations.some((o) => o.id === org.id),
+    );
+
+    const orgDetail = (await request("GET", `/organizations/${org.id}`)).payload;
+    check(
+      "org detail reports the owner role and canManage",
+      orgDetail.myRole === "owner" && orgDetail.canManage === true,
+      JSON.stringify({ myRole: orgDetail.myRole, canManage: orgDetail.canManage }),
+    );
+
+    const memberRow = (
+      await request("POST", `/organizations/${org.id}/members`, {
+        body: { email: orgMemberEmail, role: "member" },
+      })
+    ).payload;
+    const adminRow = (
+      await request("POST", `/organizations/${org.id}/members`, {
+        body: { email: orgAdminEmail, role: "admin" },
+      })
+    ).payload;
+    check(
+      "owner adds org members with member/admin roles",
+      memberRow.role === "member" &&
+        adminRow.role === "admin" &&
+        memberRow.user.email === orgMemberEmail,
+      JSON.stringify({ memberRow, adminRow }),
+    );
+
+    await request("POST", `/organizations/${org.id}/members`, {
+      body: { email: orgMemberEmail, role: "admin" },
+      status: 400,
+    });
+    check("duplicate org membership is rejected", true);
+
+    await request("POST", `/organizations/${org.id}/members`, {
+      body: { email: `nobody-${orgSuffix}@example.com`, role: "member" },
+      status: 404,
+    });
+    check("adding an unknown org member is rejected", true);
+
+    const orgMembers = (await request("GET", `/organizations/${org.id}/members`)).payload;
+    check(
+      "org member list includes the implicit owner first",
+      orgMembers.canManage === true &&
+        orgMembers.members.length === 3 &&
+        orgMembers.members[0]?.role === "owner",
+      JSON.stringify(orgMembers.members.map((m) => m.role)),
+    );
+
+    // Someone outside the org has no access to the org.
+    await request("GET", `/organizations/${org.id}`, {
+      status: 404,
+      headers: as(orgOutsiderEmail),
+    });
+    check("org outsiders are rejected", true);
+
+    // Transfer a new project into the organization.
+    const orgNewProject = (
+      await request("POST", "/projects", {
+        body: { name: `Org project ${orgSuffix}` },
+      })
+    ).payload;
+    const orgProject = (
+      await request("POST", `/projects/${orgNewProject.id}/organization`, {
+        body: { organizationId: org.id },
+      })
+    ).payload;
+    check(
+      "owner transfers a project into the organization",
+      orgProject.organizationId === org.id,
+      `org=${orgProject.organizationId}`,
+    );
+
+    // The org member now sees the project in their list with viewer access.
+    const memberProjects = (
+      await request("GET", "/projects", { headers: as(orgMemberEmail) })
+    ).payload;
+    check(
+      "org members see org projects in their list",
+      memberProjects.some((p) => p.id === orgNewProject.id && p.organizationId === org.id),
+      JSON.stringify(memberProjects.map((p) => p.id)),
+    );
+
+    await request("GET", `/projects/${orgNewProject.id}/document`, {
+      headers: as(orgMemberEmail),
+    });
+    check("org members have read (viewer) access to org projects", true);
+
+    await request("POST", `/projects/${orgNewProject.id}/document`, {
+      headers: as(orgMemberEmail),
+      body: { document: makeDoc("org member edit") },
+      status: 403,
+    });
+    check("org members cannot edit org projects (viewer)", true);
+
+    await request("POST", `/projects/${orgNewProject.id}/document`, {
+      headers: as(orgAdminEmail),
+      body: { document: makeDoc("org admin edit") },
+    });
+    check("org admins have editor access to org projects", true);
+
+    // An org outsider still has no project access via the org.
+    await request("GET", `/projects/${orgNewProject.id}`, {
+      status: 403,
+      headers: as(orgOutsiderEmail),
+    });
+    check("org outsiders have no project access", true);
+
+    // Detach back to a personal project.
+    const reverted = (
+      await request("POST", `/projects/${orgNewProject.id}/organization`, {
+        body: { organizationId: null },
+      })
+    ).payload;
+    check(
+      "owner transfers the project back to a personal project",
+      reverted.organizationId === null,
+    );
+
+    // Deleting the org cascades its memberships but not the project.
+    await request("DELETE", `/organizations/${org.id}`);
+    await request("GET", `/organizations/${org.id}`, { status: 404 });
+    check("owner deletes the organization", true);
+
+    const afterDelete = (await request("GET", `/projects/${orgNewProject.id}`)).payload;
+    check(
+      "deleting an org detaches its projects",
+      afterDelete.organizationId === null,
+    );
+  } else {
+    console.log("  - skip organization checks (DATABASE_URL not set)");
+  }
+
   // --- Cleanup -------------------------------------------------------------
   for (const id of [
     project.id,

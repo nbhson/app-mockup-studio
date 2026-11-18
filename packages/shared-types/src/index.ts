@@ -16,6 +16,8 @@ export interface ProjectDto {
   id: string;
   name: string;
   description: string | null;
+  /** Organization workspace (plan/07 4.11), null = personal project. */
+  organizationId: string | null;
   /** Active custom design system (plan/07 4.8), null when none is applied. */
   designSystemId: string | null;
   createdAt: string;
@@ -678,6 +680,80 @@ export type PresenceServerMessage =
   | PresenceMessage
   | DocumentUpdatedMessage
   | PresenceErrorMessage;
+
+// --- Organization workspace (plan/07 4.11) ----------------------------------
+
+/** Org roles: owner (implicit, `organizations.ownerId`) > admin > member. */
+export type OrgRole = "owner" | "admin" | "member";
+
+/** Roles that can be assigned through the org member APIs. */
+export type OrganizationMemberRole = "admin" | "member";
+
+export const ORG_ROLE_RANK: Record<OrgRole, number> = {
+  member: 0,
+  admin: 1,
+  owner: 2,
+};
+
+export interface OrganizationDto {
+  id: string;
+  name: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrganizationListResponse {
+  organizations: OrganizationDto[];
+}
+
+export interface OrganizationDetailResponse extends OrganizationDto {
+  /** Role for the requesting identity (owner is implicit). */
+  myRole: OrgRole | null;
+  /** True when the requesting identity can manage members/projects. */
+  canManage: boolean;
+}
+
+export interface OrgMemberDto {
+  id: string;
+  organizationId: string;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
+  /** The org owner is implicit and appears with role "owner". */
+  role: OrgRole;
+  createdAt: string;
+}
+
+export interface OrganizationMemberListResponse {
+  organizationId: string;
+  canManage: boolean;
+  members: OrgMemberDto[];
+}
+
+export interface CreateOrganizationInput {
+  name: string;
+}
+
+export interface UpdateOrganizationInput {
+  name?: string;
+}
+
+export interface AddOrganizationMemberInput {
+  email: string;
+  role: OrganizationMemberRole;
+}
+
+export interface UpdateOrganizationMemberRoleInput {
+  role: OrganizationMemberRole;
+}
+
+/** Attach a project to an organization (null = personal project). */
+export interface TransferProjectInput {
+  organizationId: string | null;
+}
 
 // --- Health -----------------------------------------------------------------
 
