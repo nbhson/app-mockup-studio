@@ -3,6 +3,8 @@ import {
   Get,
   GoneException,
   Headers,
+  HttpException,
+  HttpStatus,
   NotFoundException,
   Param,
   UnauthorizedException,
@@ -16,7 +18,7 @@ import type { UiDocument } from "@ai-mockup-studio/ui-schema";
 import { DbService } from "../../db/db.service";
 import { documents, pages, projects, shares } from "../../db/schema";
 import { ensureHomePage } from "../pages/pages.service";
-import { verifySharePassword } from "./shares.service";
+import { sharePasswordThrottle, verifySharePassword } from "./shares.service";
 
 /**
  * Public preview endpoint (plan/07 4.7). Deliberately unauthenticated: anyone
@@ -47,9 +49,29 @@ export class PublicShareController {
       if (!password) {
         throw new UnauthorizedException("Link này cần mật khẩu để xem");
       }
-      if (!share.passwordHash || !verifySharePassword(password, share.passwordHash)) {
+      // Brute-force guard: check the budget before paying the scrypt cost, so
+      // a locked-out token never reaches the expensive comparison.
+      const budget = sharePasswordThrottle.check(token);
+      if (!budget.allowed) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.TOO_MANY_REQUESTS,
+            error: "Too Many Requests",
+            message: `Nhập sai mật khẩu quá nhiều lần. Vui lòng thử lại sau ${budget.retryAfterSeconds} giây.`,
+            retryAfter: budget.retryAfterSeconds,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      if (
+        !share.passwordHash ||
+        !(await verifySharePassword(password, share.passwordHash))
+      ) {
+        sharePasswordThrottle.recordFailure(token);
         throw new UnauthorizedException("Mật khẩu không đúng");
       }
+      // Correct password clears the failure window for this token.
+      sharePasswordThrottle.reset(token);
     }
 
     const [project] = await this.db.client

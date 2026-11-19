@@ -71,7 +71,7 @@ export class SharesController {
         visibility: parsed.visibility,
         passwordHash:
           parsed.visibility === "private" && parsed.password
-            ? hashSharePassword(parsed.password)
+            ? await hashSharePassword(parsed.password)
             : null,
         expiresAt: expiryFromDays(parsed.expiresInDays),
       })

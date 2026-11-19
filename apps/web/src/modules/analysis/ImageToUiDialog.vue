@@ -96,6 +96,10 @@ async function run() {
   loading.value = true;
   error.value = null;
   result.value = null;
+  // Pin the project/page the analysis was started on — the upload + vision
+  // pass can outlive a project switch, and setDocument would then replace
+  // the NEW project's canvas with the old context's result.
+  const ctx = doc.captureContext();
   try {
     const imageBase64 = await readFileAsDataUrl(file.value);
     const response = await api.post<ImageToUiResult>("/ai/image-to-ui", {
@@ -103,6 +107,11 @@ async function run() {
       mimeType: file.value.type,
       prompt: prompt.value.trim() || undefined,
     });
+    if (!doc.isContextCurrent(ctx)) {
+      error.value =
+        "Bạn đã chuyển trang/dự án trong lúc dựng mockup — kết quả không được áp dụng.";
+      return;
+    }
     doc.setDocument(response.document);
     result.value = response;
   } catch (e) {

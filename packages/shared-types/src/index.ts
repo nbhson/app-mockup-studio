@@ -31,7 +31,8 @@ export interface CreateProjectInput {
 
 export interface UpdateProjectInput {
   name?: string;
-  description?: string;
+  /** `null` clears the description (matches updateProjectSchema). */
+  description?: string | null;
 }
 
 // --- Documents -------------------------------------------------------------

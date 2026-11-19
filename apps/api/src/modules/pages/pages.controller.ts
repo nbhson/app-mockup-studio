@@ -41,6 +41,7 @@ import {
   uniqueSlug,
   type PageRow,
 } from "./pages.service";
+import { isUniqueViolation } from "../../common/db-error";
 
 @Controller("projects/:projectId/pages")
 export class PagesController {
@@ -97,7 +98,7 @@ export class PagesController {
     await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
     const parsed = createPageSchema.parse(body);
-    const slug = await uniqueSlug(this.db, projectId, parsed.slug ?? parsed.name);
+    let slug = await uniqueSlug(this.db, projectId, parsed.slug ?? parsed.name);
     const existing = await this.db.client
       .select({ position: pages.position })
       .from(pages)
@@ -107,27 +108,44 @@ export class PagesController {
 
     // Insert both rows in one transaction so a failure can never leave an
     // orphan document without a page (see ensureHomePage determinism).
-    const [doc, page] = await this.db.client.transaction(async (tx) => {
-      const [newDoc] = await tx
-        .insert(documents)
-        .values({
-          projectId,
-          schemaVersion: document.schemaVersion,
-          schema: document as unknown as object,
-        })
-        .returning();
-      const [newPage] = await tx
-        .insert(pages)
-        .values({
-          projectId,
-          name: parsed.name,
-          slug,
-          position,
-          documentId: newDoc.id,
-        })
-        .returning();
-      return [newDoc, newPage] as const;
-    });
+    // uniqueSlug() is read-then-insert: if a concurrent request claimed the
+    // same slug first, the unique index fails the whole transaction (rolling
+    // the document back too); recompute the slug and retry once instead of
+    // surfacing a 500.
+    let created: readonly [{ schema: unknown; updatedAt: Date; revision: number }, PageRow];
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        created = await this.db.client.transaction(async (tx) => {
+          const [newDoc] = await tx
+            .insert(documents)
+            .values({
+              projectId,
+              schemaVersion: document.schemaVersion,
+              schema: document as unknown as object,
+            })
+            .returning();
+          const [newPage] = await tx
+            .insert(pages)
+            .values({
+              projectId,
+              name: parsed.name,
+              slug,
+              position,
+              documentId: newDoc.id,
+            })
+            .returning();
+          return [newDoc, newPage] as const;
+        });
+        break;
+      } catch (error) {
+        if (attempt === 0 && isUniqueViolation(error)) {
+          slug = await uniqueSlug(this.db, projectId, parsed.slug ?? parsed.name);
+          continue;
+        }
+        throw error;
+      }
+    }
+    const [doc, page] = created;
 
     return {
       projectId,
@@ -250,51 +268,60 @@ export class PagesController {
       .limit(1);
     if (!existing) throw new NotFoundException(`Trang ${pageId} không có document`);
 
-    // Optimistic concurrency (plan/07 4.4) — see documents.controller.
+    // Optimistic concurrency (plan/07 4.4) — identical contract to
+    // documents.service.save(): baseVersion is REQUIRED for an update, and
+    // the write itself is guarded by `WHERE revision = expectedBase` inside
+    // one transaction with the autosave snapshot. A missing OR stale
+    // baseVersion gets the same 409 shape; a writer that races past the
+    // pre-check matches zero rows and also gets 409 instead of silently
+    // clobbering the other save.
     const conflict = () =>
       new ConflictException({
         message:
           "Document đã được người khác cập nhật. Hãy tải bản mới nhất trước khi lưu.",
         currentVersion: String(existing.revision),
       });
-    if (parsed.baseVersion && parsed.baseVersion !== String(existing.revision)) {
+    if (!parsed.baseVersion || parsed.baseVersion !== String(existing.revision)) {
       throw conflict();
     }
+    const expectedBase = existing.revision;
 
-    const [lastVersion] = await this.db.client
-      .select({ createdAt: versions.createdAt })
-      .from(versions)
-      .where(eq(versions.documentId, existing.id))
-      .orderBy(desc(versions.createdAt))
-      .limit(1);
-    const shouldSnapshot =
-      !lastVersion || Date.now() - lastVersion.createdAt.getTime() > 5 * 60 * 1000;
-    if (shouldSnapshot) {
-      await this.db.client.insert(versions).values({
-        documentId: existing.id,
-        projectId: existing.projectId,
-        snapshot: existing.schema as object,
-        note: "Autosave",
-      });
-    }
+    const saved = await this.db.client.transaction(async (tx) => {
+      const [lastVersion] = await tx
+        .select({ createdAt: versions.createdAt })
+        .from(versions)
+        .where(eq(versions.documentId, existing.id))
+        .orderBy(desc(versions.createdAt))
+        .limit(1);
+      const shouldSnapshot =
+        !lastVersion || Date.now() - lastVersion.createdAt.getTime() > 5 * 60 * 1000;
+      if (shouldSnapshot) {
+        await tx.insert(versions).values({
+          documentId: existing.id,
+          projectId: existing.projectId,
+          snapshot: existing.schema as object,
+          note: "Autosave",
+        });
+      }
 
-    const guard = parsed.baseVersion
-      ? and(
-          eq(documents.id, page.documentId),
-          eq(documents.revision, existing.revision),
+      const [updated] = await tx
+        .update(documents)
+        .set({
+          schema: parsed.document as unknown as object,
+          schemaVersion: parsed.document.schemaVersion,
+          revision: expectedBase + 1,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(documents.id, page.documentId),
+            eq(documents.revision, expectedBase),
+          ),
         )
-      : eq(documents.id, page.documentId);
-    const [saved] = await this.db.client
-      .update(documents)
-      .set({
-        schema: parsed.document as unknown as object,
-        schemaVersion: parsed.document.schemaVersion,
-        revision: existing.revision + 1,
-        updatedAt: new Date(),
-      })
-      .where(guard)
-      .returning();
-    if (!saved) throw conflict();
+        .returning();
+      if (!updated) throw conflict();
+      return updated;
+    });
     const [updatedPage] = await this.db.client
       .update(pages)
       .set({ updatedAt: new Date() })
@@ -332,22 +359,41 @@ export class PagesController {
     await this.access.assertProjectRole(projectId, "editor", req);
     const parsed = updatePageSchema.parse(body);
     const page = await this.findPage(projectId, pageId);
-    const slug =
+    const desiredSlug =
       parsed.slug !== undefined
-        ? await uniqueSlug(this.db, projectId, parsed.slug, page.id)
+        ? parsed.slug
         : parsed.name !== undefined
-          ? await uniqueSlug(this.db, projectId, parsed.name, page.id)
+          ? parsed.name
           : undefined;
-    const [updated] = await this.db.client
-      .update(pages)
-      .set({
-        ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-        ...(slug !== undefined ? { slug } : {}),
-        ...(parsed.position !== undefined ? { position: parsed.position } : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(pages.id, page.id))
-      .returning();
+    let slug =
+      desiredSlug !== undefined
+        ? await uniqueSlug(this.db, projectId, desiredSlug, page.id)
+        : undefined;
+    let updated: PageRow | undefined;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const [row] = await this.db.client
+          .update(pages)
+          .set({
+            ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+            ...(slug !== undefined ? { slug } : {}),
+            ...(parsed.position !== undefined ? { position: parsed.position } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(pages.id, page.id))
+          .returning();
+        updated = row as PageRow;
+        break;
+      } catch (error) {
+        // Slug taken between uniqueSlug()'s read and this write by a
+        // concurrent rename — recompute and retry once (same race as create()).
+        if (attempt === 0 && slug !== undefined && isUniqueViolation(error)) {
+          slug = await uniqueSlug(this.db, projectId, desiredSlug!, page.id);
+          continue;
+        }
+        throw error;
+      }
+    }
 
     const [doc] = await this.db.client
       .select()

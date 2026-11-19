@@ -34,10 +34,7 @@ import {
   projects,
 } from "../../db/schema";
 import { collectIds } from "@ai-mockup-studio/ui-schema";
-import {
-  DEFAULT_COMMENT_AUTHOR,
-  toCommentThreadDto,
-} from "./comments.service";
+import { toCommentThreadDto } from "./comments.service";
 
 /**
  * Canvas review comments (plan/07 4.6). Threads live under a project and are
@@ -107,7 +104,13 @@ export class CommentsController {
     @Body() body: CreateCommentInput,
     @Req() req: Request,
   ): Promise<CommentThreadDto> {
-    await this.access.assertProjectRole(projectId, "viewer", req);
+    // Comments live on the project workspace like edits, and their author is
+    // shown as trusted attribution ("who flagged this node"). Allowing mere
+    // viewers to create threads with an arbitrary `authorName` enabled
+    // impersonation, so writes require editor AND the author comes from the
+    // verified identity — never from the request body.
+    const user = await this.access.assertProjectRole(projectId, "editor", req);
+    const authorName = user.name || user.email;
     await this.assertProject(projectId);
     const parsed = createCommentSchema.parse(body);
     const page = await this.assertPage(projectId, parsed.pageId);
@@ -138,7 +141,7 @@ export class CommentsController {
           pageId: parsed.pageId,
           nodeId: parsed.nodeId ?? null,
           nodeLabel: parsed.nodeLabel ?? null,
-          createdBy: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
+          createdBy: authorName,
         })
         .returning();
 
@@ -146,7 +149,7 @@ export class CommentsController {
         .insert(commentMessages)
         .values({
           threadId: created.id,
-          authorName: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
+          authorName,
           body: parsed.body,
         })
         .returning();
@@ -164,13 +167,15 @@ export class CommentsController {
     @Body() body: ReplyCommentInput,
     @Req() req: Request,
   ): Promise<CommentThreadDto> {
-    await this.access.assertProjectRole(projectId, "viewer", req);
+    // Same rule as create(): editor, and the author is the verified identity,
+    // not whatever `authorName` the client sent.
+    const user = await this.access.assertProjectRole(projectId, "editor", req);
     const thread = await this.getThread(projectId, threadId);
     const parsed = replyCommentSchema.parse(body);
 
     await this.db.client.insert(commentMessages).values({
       threadId: thread.id,
-      authorName: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
+      authorName: user.name || user.email,
       body: parsed.body,
     });
     const [updated] = await this.db.client

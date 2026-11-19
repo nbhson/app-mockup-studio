@@ -35,6 +35,15 @@ export interface CommandEntry {
   before: UiDocument;
 }
 
+/** Snapshot of the editor's routing context. Long-running async flows take
+ *  one with `captureContext()` and re-check it with `isContextCurrent()`
+ *  before touching state — results for a project/page the user navigated
+ *  away from must be dropped, not applied to whatever is open now. */
+export interface DocumentContext {
+  projectId: string | null;
+  pageId: string | null;
+}
+
 /** Given a set of node ids, keep only the top-most ones (drop ids whose
  *  ancestor is also in the set). Used by delete/move/copy so one patch set
  *  never references nodes that a sibling patch already removed. */
@@ -70,6 +79,10 @@ export const useDocumentStore = defineStore("document", () => {
   // never silently overwritten.
   const baseVersion = ref<string | null>(null);
   const saveConflict = ref(false);
+
+  // Load failures used to vanish into `void loadProject()` in WorkspaceView;
+  // this powers the retry banner instead (same pattern as saveError/conflict).
+  const loadError = ref<string | null>(null);
 
   // Version history (GĐ 5.2): metadata list + restore state.
   const versions = ref<VersionSummaryDto[]>([]);
@@ -272,7 +285,25 @@ export const useDocumentStore = defineStore("document", () => {
     projectId.value = id;
   }
 
+  /** Snapshot the project/page this tab is editing (see DocumentContext). */
+  function captureContext(): DocumentContext {
+    return { projectId: projectId.value, pageId: currentPageId.value };
+  }
+
+  /** True while no navigation happened since `ctx` was captured. Async
+   *  flows call this after each await and DROP their result when false. */
+  function isContextCurrent(ctx: DocumentContext): boolean {
+    return (
+      ctx.projectId === projectId.value && ctx.pageId === currentPageId.value
+    );
+  }
+
+  // Monotonic guard for `load()`: a response for an older route must never
+  // commit after a newer load already landed (fast project switches).
+  let loadSeq = 0;
+
   async function load(project: string) {
+    const seq = ++loadSeq;
     cancelAutosave();
     // Flush the previous project's unsaved edits before replacing state:
     // otherwise the last ≤1.2s of work (or everything while autosave is
@@ -285,7 +316,9 @@ export const useDocumentStore = defineStore("document", () => {
     ) {
       await save().catch(() => undefined);
     }
+    if (seq !== loadSeq) return; // superseded by a newer load while flushing
     isLoading.value = true;
+    loadError.value = null;
     try {
       // Load pages first: the endpoint lazily wraps legacy single-document
       // projects in a home page, so the document request below is race-free.
@@ -298,6 +331,7 @@ export const useDocumentStore = defineStore("document", () => {
         updatedAt: string;
         revision: number;
       }>(`/projects/${project}/document`);
+      if (seq !== loadSeq) return; // a newer load won the race — drop this one
       // Only adopt the new project once both fetches succeeded: a failed
       // load must not leave the previous document under the new project id,
       // where the next edit would save the old tree into the new project.
@@ -331,11 +365,21 @@ export const useDocumentStore = defineStore("document", () => {
       versions.value = [];
       versionsError.value = null;
       editRevision = 0;
+    } catch (e) {
+      // Surface the failure (WorkspaceView shows a retry banner) instead of
+      // letting it disappear into an unobserved `void load(...)`. Re-throw so
+      // explicit callers can still react; WorkspaceView swallows it here.
+      if (seq === loadSeq) {
+        loadError.value = e instanceof Error ? e.message : "Không tải được dự án";
+      }
+      throw e;
     } finally {
-      isLoading.value = false;
-      // `document.value = …` fires the autosave watcher (pre-flush) while the
-      // OLD isDirty may still be true; never leave an armed timer after a load.
-      cancelAutosave();
+      if (seq === loadSeq) {
+        isLoading.value = false;
+        // `document.value = …` fires the autosave watcher (pre-flush) while the
+        // OLD isDirty may still be true; never leave an armed timer after a load.
+        cancelAutosave();
+      }
     }
   }
 
@@ -442,41 +486,14 @@ export const useDocumentStore = defineStore("document", () => {
     // let `applyPageDocument` below rebase the revision on the replacement.
     cancelAutosave();
     const wasActive = pageId === currentPageId.value;
-    const list = await api.delete<PageListResponse>(
-      `/projects/${projectId.value}/pages/${pageId}`,
-    );
-    pages.value = list.pages;
-    currentPageId.value = list.currentPageId;
-    if (!wasActive) return;
-
-    if (list.currentPageId) {
-      const detail = await api.get<PageDetailResponse>(
-        `/projects/${projectId.value}/pages/${list.currentPageId}`,
-      );
-      applyPageDocument(detail);
-    } else {
-      document.value = null;
-      clearSelection();
-      past.value = [];
-      future.value = [];
-      isDirty.value = false;
-      lastSavedAt.value = null;
-    }
-  }
-
-  /** Atomically replace every page (AI multi-page generation). */
-  async function replacePages(input: ReplacePagesInput): Promise<PageListResponse> {
-    if (!projectId.value) throw new Error("Chưa chọn dự án");
-    cancelAutosave();
-    pagesLoading.value = true;
-    pagesError.value = null;
     try {
-      const list = await api.put<PageListResponse>(
-        `/projects/${projectId.value}/pages`,
-        input,
+      const list = await api.delete<PageListResponse>(
+        `/projects/${projectId.value}/pages/${pageId}`,
       );
       pages.value = list.pages;
       currentPageId.value = list.currentPageId;
+      if (!wasActive) return;
+
       if (list.currentPageId) {
         const detail = await api.get<PageDetailResponse>(
           `/projects/${projectId.value}/pages/${list.currentPageId}`,
@@ -488,11 +505,57 @@ export const useDocumentStore = defineStore("document", () => {
         past.value = [];
         future.value = [];
         isDirty.value = false;
+        lastSavedAt.value = null;
+      }
+    } finally {
+      // Deleting a BACKGROUND page (or failing to delete at all) must not
+      // silently cancel the still-open page's pending autosave: re-arm it so
+      // dirty edits keep their normal save deadline instead of hanging
+      // unsaved until the next keystroke. `scheduleAutosave` is a no-op when
+      // nothing is dirty. For the active page, `applyPageDocument` already
+      // cleared the dirty flag, so the early return above is safe.
+      if (!wasActive) scheduleAutosave();
+    }
+  }
+
+  /** Atomically replace every page (AI multi-page generation). */
+  async function replacePages(input: ReplacePagesInput): Promise<PageListResponse> {
+    if (!projectId.value) throw new Error("Chưa chọn dự án");
+    cancelAutosave();
+    // Pin the request to the project the dialog acted on. Switching to a
+    // DIFFERENT project mid-flight must not stamp this project's replace
+    // result onto the new editor state; the (expected) page changes this
+    // operation itself performs are therefore not part of the guard.
+    const ctx = captureContext();
+    pagesLoading.value = true;
+    pagesError.value = null;
+    try {
+      const list = await api.put<PageListResponse>(
+        `/projects/${ctx.projectId}/pages`,
+        input,
+      );
+      if (projectId.value !== ctx.projectId) return list; // dropped: stale project
+      pages.value = list.pages;
+      currentPageId.value = list.currentPageId;
+      if (list.currentPageId) {
+        const detail = await api.get<PageDetailResponse>(
+          `/projects/${ctx.projectId}/pages/${list.currentPageId}`,
+        );
+        if (projectId.value !== ctx.projectId) return list; // switched during GET
+        applyPageDocument(detail);
+      } else {
+        document.value = null;
+        clearSelection();
+        past.value = [];
+        future.value = [];
+        isDirty.value = false;
       }
       return list;
     } catch (e) {
-      pagesError.value =
-        e instanceof Error ? e.message : "Không thay được danh sách trang";
+      if (projectId.value === ctx.projectId) {
+        pagesError.value =
+          e instanceof Error ? e.message : "Không thay được danh sách trang";
+      }
       throw e;
     } finally {
       pagesLoading.value = false;
@@ -573,26 +636,62 @@ export const useDocumentStore = defineStore("document", () => {
     inflightSave = (async () => {
       isSaving.value = true;
       saveError.value = null;
+      const body = {
+        document: document.value,
+        baseVersion: baseVersion.value,
+      };
       try {
-        const res = await api.post<DocumentResponse>(
-          `/projects/${targetProject}/document`,
-          { document: document.value, baseVersion: baseVersion.value },
-        );
-        if (
-          projectId.value !== targetProject ||
-          currentPageId.value !== targetPage
-        ) {
-          // State moved on while saving; applying this response corrupts it.
-          return;
+        let revision: number;
+        let updatedAt: string;
+        if (targetPage) {
+          // Page-scoped endpoint: THIS tab's content always lands on the page
+          // the user is editing. The legacy project endpoint resolves to the
+          // project-wide "active page", which another tab flips via activate —
+          // posting there would write our edits into a different page.
+          const detail = await api.post<PageDetailResponse>(
+            `/projects/${targetProject}/pages/${targetPage}`,
+            body,
+          );
+          if (
+            projectId.value !== targetProject ||
+            currentPageId.value !== targetPage
+          ) {
+            // State moved on while saving; applying this response corrupts it.
+            return;
+          }
+          revision = detail.revision;
+          updatedAt = detail.updatedAt;
+          // Keep the page row shown in the page switcher fresh.
+          pages.value = pages.value.map((page) =>
+            page.id === targetPage ? detail.page : page,
+          );
+        } else {
+          // Brand-new project without pages yet: the legacy project endpoint
+          // saves and lazily creates the home page.
+          const legacy = await api.post<DocumentResponse>(
+            `/projects/${targetProject}/document`,
+            body,
+          );
+          if (
+            projectId.value !== targetProject ||
+            currentPageId.value !== targetPage
+          ) {
+            return;
+          }
+          revision = legacy.revision;
+          updatedAt = legacy.updatedAt;
+          // The first save of a brand-new project creates its home page.
+          if (
+            legacy.currentPageId &&
+            legacy.currentPageId !== currentPageId.value
+          ) {
+            currentPageId.value = legacy.currentPageId;
+            await loadPages().catch(() => undefined);
+          }
         }
-        // The first save of a brand-new project creates its home page.
-        if (res.currentPageId && res.currentPageId !== currentPageId.value) {
-          currentPageId.value = res.currentPageId;
-          await loadPages().catch(() => undefined);
-        }
-        baseVersion.value = String(res.revision);
+        baseVersion.value = String(revision);
         saveConflict.value = false;
-        lastSavedAt.value = new Date(res.updatedAt);
+        lastSavedAt.value = new Date(updatedAt);
         if (editRevision === rev) {
           isDirty.value = false;
         } else {
@@ -602,14 +701,21 @@ export const useDocumentStore = defineStore("document", () => {
       } catch (e) {
         if (e instanceof ApiError && e.statusCode === 409) {
           // Another user saved after our last read. Stop autosave and ask the
-          // user to reload; never clobber their version.
-          if (projectId.value === targetProject) {
+          // user to reload; never clobber their version. Only when the page
+          // that conflicted is still the one on screen.
+          if (
+            projectId.value === targetProject &&
+            currentPageId.value === targetPage
+          ) {
             saveConflict.value = true;
             saveError.value =
               "Document đã được người khác cập nhật. Tải bản mới nhất để tiếp tục.";
             cancelAutosave();
           }
-        } else if (projectId.value === targetProject) {
+        } else if (
+          projectId.value === targetProject &&
+          currentPageId.value === targetPage
+        ) {
           saveError.value = e instanceof Error ? e.message : "Save failed";
         }
       } finally {
@@ -620,10 +726,36 @@ export const useDocumentStore = defineStore("document", () => {
     return inflightSave;
   }
 
-  /** Discard local state and load the server's latest document after a 409. */
+  /** Discard local state and load the server's latest version of the CURRENT
+   *  page after a 409. Must not fall back to the project-level endpoint:
+   *  that resolves to the "active page" another tab may have switched, and
+   *  jumping there would look like the reload threw the user's page away. */
   async function reloadLatest(): Promise<void> {
     if (!projectId.value) return;
-    await load(projectId.value);
+    cancelAutosave();
+    if (!currentPageId.value) {
+      await load(projectId.value).catch(() => undefined);
+      return;
+    }
+    const ctx = captureContext();
+    try {
+      const detail = await api.get<PageDetailResponse>(
+        `/projects/${ctx.projectId}/pages/${ctx.pageId}`,
+      );
+      if (!isContextCurrent(ctx)) return; // navigated away mid-request
+      applyPageDocument(detail);
+      loadError.value = null;
+    } catch (e) {
+      if (!isContextCurrent(ctx)) return;
+      if (e instanceof ApiError && e.statusCode === 404) {
+        // The page vanished (deleted by another tab): reopening the project
+        // follows the server's new active page.
+        await load(ctx.projectId!).catch(() => undefined);
+        return;
+      }
+      loadError.value =
+        e instanceof Error ? e.message : "Không tải được bản mới nhất";
+    }
   }
 
   /** Apply (or detach) a project design system after flushing local edits. */
@@ -646,12 +778,23 @@ export const useDocumentStore = defineStore("document", () => {
       }
       if (document.value) {
         // The server bumped every document's revision; refresh our token so the
-        // next autosave is not mistaken for a conflicting write.
-        const latest = await api.get<{
-          document: UiDocument | null;
-          revision: number;
-        }>(`/projects/${projectId.value}/document`);
-        baseVersion.value = latest.document ? String(latest.revision) : null;
+        // next autosave is not mistaken for a conflicting write. Read the page
+        // we are editing, not the project-level "active page" — the latter may
+        // resolve to a different page another tab just activated, and rebasing
+        // onto ITS revision would make our next save a silent lost update (or
+        // a spurious 409) for the page actually open here.
+        if (currentPageId.value && projectId.value) {
+          const detail = await api.get<PageDetailResponse>(
+            `/projects/${projectId.value}/pages/${currentPageId.value}`,
+          );
+          baseVersion.value = String(detail.revision);
+        } else {
+          const latest = await api.get<{
+            document: UiDocument | null;
+            revision: number;
+          }>(`/projects/${projectId.value}/document`);
+          baseVersion.value = latest.document ? String(latest.revision) : null;
+        }
         lastSavedAt.value = new Date();
       }
       return response;
@@ -737,12 +880,15 @@ export const useDocumentStore = defineStore("document", () => {
     projectId,
     document,
     isLoading,
+    loadError,
     isDirty,
     isSaving,
     saveError,
     baseVersion,
     saveConflict,
     reloadLatest,
+    captureContext,
+    isContextCurrent,
     lastSavedAt,
     versions,
     versionsLoading,

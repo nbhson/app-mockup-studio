@@ -2,9 +2,18 @@ import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
 import { ZodExceptionFilter } from "./common/zod-exception.filter";
+import { resolveTrustProxy } from "./common/trust-proxy";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Rate limiting and other IP-based logic are only correct behind a reverse
+  // proxy (nginx, Cloud Run, ALB) when Express trusts the `X-Forwarded-For`
+  // hop chain. Without this, `req.ip` is always the proxy's address and every
+  // client shares one bucket. Opt in with TRUST_PROXY: a hop count
+  // (e.g. "1", "2") or "true" (= trust one immediate proxy). Left unset the
+  // app trusts nothing, which is the safe default for direct/dev traffic.
+  app.set("trust proxy", resolveTrustProxy(process.env.TRUST_PROXY));
 
   // Image uploads travel as base64 JSON (2 MiB file ≈ 2.7 MB body), so the
   // default 100 kB body-parser limit is too small.

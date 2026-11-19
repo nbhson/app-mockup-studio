@@ -15,6 +15,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import type { OrgRole, ProjectRole } from "@ai-mockup-studio/shared-types";
@@ -66,6 +67,33 @@ export class AccessService {
       .where(eq(users.email, normalized))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Identity gate for writes to GLOBAL, owner-less resources (design systems,
+   * component libraries). Unlike `resolve()`, the demo user is NOT accepted:
+   * a missing or unknown `x-user-email` means we cannot attribute the change
+   * to anyone, so mutating shared catalogs would be anonymous vandalism —
+   * answer 401 instead. These tables have no owner column, so per-resource
+   * "only the creator may edit" (403) additionally needs a schema change.
+   */
+  async assertIdentifiedUser(
+    req: Request,
+  ): Promise<{ id: string; email: string; name: string | null }> {
+    const raw = req?.headers?.["x-user-email"];
+    const header = Array.isArray(raw) ? raw[0] : raw;
+    if (header === undefined || String(header).trim() === "") {
+      throw new UnauthorizedException(
+        "Cần đăng nhập (header x-user-email) để thay đổi tài nguyên chung.",
+      );
+    }
+    const user = await this.resolveEmail(String(header));
+    if (!user) {
+      throw new UnauthorizedException(
+        "Cần đăng nhập (header x-user-email) để thay đổi tài nguyên chung.",
+      );
+    }
+    return user;
   }
 
   /**

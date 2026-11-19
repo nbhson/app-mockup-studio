@@ -42,7 +42,86 @@ const responsiveStylesSchema = z
   })
   .passthrough();
 
-export const uiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
+// --- Tree sanity -----------------------------------------------------------
+// Recursive Zod parsing overflows the stack on pathological input (LLMs do
+// emit runaway nesting on hallucination). Bound depth & node count with an
+// ITERATIVE pre-pass, and reject cyclic object graphs outright.
+
+export const MAX_TREE_DEPTH = 200;
+export const MAX_TREE_NODES = 5000;
+
+function assertTreeWithinLimits(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  // Accept either a UiNode or a whole UiDocument (walk its .root).
+  let node: Record<string, unknown> | null = null;
+  if (typeof record.id === "string" && typeof record.type === "string") node = record;
+  else if (typeof record.root === "object" && record.root !== null) {
+    const root = record.root as Record<string, unknown>;
+    if (typeof root.id === "string") node = root;
+  }
+  if (!node) return data; // let the inner schema report shape errors
+  const seen = new Set<unknown>();
+  const stack: Array<{ node: Record<string, unknown>; depth: number }> = [{ node, depth: 1 }];
+  let count = 0;
+  let maxDepth = 1;
+  while (stack.length > 0) {
+    const entry = stack.pop() as { node: Record<string, unknown>; depth: number };
+    if (seen.has(entry.node)) {
+      throw new z.ZodError([
+        {
+          code: "custom",
+          path: ["root"],
+          message: "Cây tài liệu chứa tham chiếu vòng lặp (cycle)",
+        },
+      ]);
+    }
+    seen.add(entry.node);
+    count += 1;
+    maxDepth = Math.max(maxDepth, entry.depth);
+    if (count > MAX_TREE_NODES || maxDepth > MAX_TREE_DEPTH) {
+      throw new z.ZodError([
+        {
+          code: "custom",
+          path: ["root"],
+          message: `Tài liệu vượt giới hạn cho phép (tối đa ${MAX_TREE_NODES} node, độ sâu ${MAX_TREE_DEPTH})`,
+        },
+      ]);
+    }
+    const children = entry.node.children;
+    if (Array.isArray(children)) {
+      for (const child of children) {
+        if (typeof child === "object" && child !== null) {
+          stack.push({ node: child as Record<string, unknown>, depth: entry.depth + 1 });
+        }
+      }
+    }
+  }
+  return data;
+}
+
+// --- Update-patch change keys ----------------------------------------------
+// Keys are dot-paths resolved against the node object. Mirror the renderer's
+// whitelist so malformed AI patches are rejected BEFORE application.
+
+const SAFE_CHANGE_ROOTS = new Set([
+  "props",
+  "styles",
+  "responsive",
+  "name",
+  "hidden",
+  "locked",
+  "text",
+]);
+const FORBIDDEN_PATH_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
+export function isSafeChangeKey(key: string): boolean {
+  const parts = key.split(".");
+  if (parts.length === 0 || !SAFE_CHANGE_ROOTS.has(parts[0])) return false;
+  return parts.every((part) => !FORBIDDEN_PATH_SEGMENTS.has(part));
+}
+
+const _uiNodeSchemaCore: z.ZodType<UiNode> = z.lazy(() =>
   z.object({
     id: z.string().min(1),
     type: z.string().min(1),
@@ -52,8 +131,13 @@ export const uiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
     responsive: responsiveStylesSchema.optional(),
     props: z.record(z.string(), z.unknown()).optional(),
     styles: uiStylesSchema.optional(),
-    children: z.array(uiNodeSchema).optional(),
+    children: z.array(_uiNodeSchemaCore).optional(),
   }),
+);
+
+export const uiNodeSchema: z.ZodType<UiNode> = z.preprocess(
+  assertTreeWithinLimits,
+  _uiNodeSchemaCore,
 );
 
 export const viewportSchema = z.object({
@@ -61,42 +145,87 @@ export const viewportSchema = z.object({
   height: z.number(),
 });
 
+const CSS_COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%deg]+\)|[a-z]+)$/i;
+
 export const themeSchema = z.object({
   mode: z.enum(["light", "dark"]),
-  primary: z.string(),
-  primaryForeground: z.string(),
-  background: z.string(),
-  foreground: z.string(),
-  muted: z.string(),
-  mutedForeground: z.string(),
-  border: z.string(),
-  fontFamily: z.string(),
+  primary: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  primaryForeground: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  background: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  foreground: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  muted: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  mutedForeground: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  border: z.string().regex(CSS_COLOR_RE, "Màu phải là giá trị CSS hợp lệ").max(64),
+  fontFamily: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z0-9 ,'"()-]+$/, "Font family chỉ gồm tên font, dấu phẩy và dấu nháy"),
   radius: z.number(),
 });
 
-export const uiDocumentSchema = z.object({
-  schemaVersion: z.string(),
-  id: z.string().min(1),
-  pageId: z.string().min(1),
-  name: z.string().min(1),
-  viewport: viewportSchema,
-  theme: themeSchema,
-  root: uiNodeSchema,
-});
+const uiDocumentSchemaBase = z
+  .object({
+    schemaVersion: z.string(),
+    id: z.string().min(1),
+    pageId: z.string().min(1),
+    name: z.string().min(1).max(200),
+    viewport: viewportSchema,
+    theme: themeSchema,
+    root: uiNodeSchema,
+  })
+  .superRefine((doc, ctx) => {
+    // Duplicate node ids make every later lookup ambiguous: the two findNode
+    // paths (validation vs mutation) can then target different nodes and
+    // undo/replay becomes inconsistent. Enforce uniqueness at the boundary.
+    const seen = new Set<string>();
+    const stack: UiNode[] = [doc.root];
+    while (stack.length > 0) {
+      const node = stack.pop() as UiNode;
+      if (seen.has(node.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["root"],
+          message: `Node id "${node.id}" xuất hiện nhiều lần — id phải duy nhất trong tài liệu`,
+        });
+        continue;
+      }
+      seen.add(node.id);
+      for (const child of node.children ?? []) stack.push(child);
+    }
+  });
+
+// The tree-limit pre-pass lives at the OUTERMOST layer so `safeParse` on a
+// pathological document yields a normal result error (a throw inside a nested
+// field escapes safeParse's catch and surfaces as an exception).
+export const uiDocumentSchema = z.preprocess(assertTreeWithinLimits, uiDocumentSchemaBase);
 
 // --- Patches ---------------------------------------------------------------
 
 export const addPatchSchema = z.object({
   op: z.literal("add"),
   parentId: z.string().min(1),
-  index: z.number().int().optional(),
+  index: z.number().int().min(0).optional(),
   node: uiNodeSchema,
 });
 
 export const updatePatchSchema = z.object({
   op: z.literal("update"),
   targetId: z.string().min(1),
-  changes: z.record(z.string(), z.unknown()),
+  changes: z
+    .record(z.string(), z.unknown())
+    .superRefine((changes, ctx) => {
+      for (const key of Object.keys(changes)) {
+        if (!isSafeChangeKey(key)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [key],
+            message:
+              'Key của changes phải bắt đầu bằng props./styles./responsive. hoặc là name/hidden/locked/text',
+          });
+        }
+      }
+    }),
 });
 
 export const removePatchSchema = z.object({
@@ -104,12 +233,22 @@ export const removePatchSchema = z.object({
   targetId: z.string().min(1),
 });
 
-export const movePatchSchema = z.object({
-  op: z.literal("move"),
-  targetId: z.string().min(1),
-  newParentId: z.string().min(1),
-  index: z.number().int().optional(),
-});
+export const movePatchSchema = z
+  .object({
+    op: z.literal("move"),
+    targetId: z.string().min(1),
+    newParentId: z.string().min(1),
+    index: z.number().int().min(0).optional(),
+  })
+  .superRefine((patch, ctx) => {
+    if (patch.newParentId === patch.targetId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["newParentId"],
+        message: "Không thể di chuyển một node vào chính nó",
+      });
+    }
+  });
 
 export const replacePatchSchema = z.object({
   op: z.literal("replace"),

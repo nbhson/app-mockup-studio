@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import type {
   GenerateResult,
   AiEditResult,
@@ -104,6 +104,7 @@ import {
 import {
   DEFAULT_PALETTE,
   extractPngPalette,
+  isPngDecompressionBomb,
   normalizeHex,
   paletteFromHexList,
   themeFromPalette,
@@ -128,6 +129,7 @@ const MAX_AI_IMAGE_BYTES = 5 * 1024 * 1024;
 @Injectable()
 export class AiService {
   private readonly MAX_RETRIES = 2;
+  private readonly logger = new Logger(AiService.name);
 
   constructor(
     private readonly openAI: OpenAIProviderService,
@@ -136,6 +138,21 @@ export class AiService {
 
   private get useRealLLM(): boolean {
     return this.openAI.isConfigured;
+  }
+
+  /**
+   * Provider/parse failures can echo API keys, internal endpoints or raw
+   * schema diffs. We log the detail server-side but NEVER put `lastError` in a
+   * client response — the user gets a stable Vietnamese message instead.
+   */
+  private logAiError(
+    feature: string,
+    attempts: number,
+    lastError: string | null,
+  ): void {
+    this.logger.warn(
+      `AI "${feature}" failed after ${attempts} attempt(s): ${lastError ?? "unknown error"}`,
+    );
   }
 
   async generate(body: GenerateRequestBody, viewportMode: string | undefined): Promise<GenerateResult> {
@@ -199,6 +216,7 @@ export class AiService {
       }
     }
     // After retries, fall back to a valid mock so the user is never stuck.
+    this.logAiError("generate", attempts, lastError);
     this.metrics.recordAi(
       "generate",
       "fallback",
@@ -208,7 +226,7 @@ export class AiService {
     );
     return {
       document: generateMockDocument(parsed.prompt, (viewportMode ?? "desktop") as never),
-      summary: `⚠️ Không thể xác nhận kết quả AI hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng mockup dự phòng.`,
+      summary: `⚠️ Không thể xác nhận kết quả AI hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng mockup dự phòng.`,
     };
   }
 
@@ -283,8 +301,11 @@ export class AiService {
         lastError = e instanceof Error ? e.message : String(e);
       }
     }
+    this.logAiError("edit", attempts, lastError);
     this.metrics.recordAi("edit", "error", performance.now() - started, usage, attempts);
-    throw new BadRequestException(`AI không thể tạo patch hợp lệ: ${lastError}`);
+    throw new BadRequestException(
+      "AI không thể tạo patch hợp lệ. Vui lòng mô tả rõ hơn hoặc thử lại.",
+    );
   }
 
   /**
@@ -355,6 +376,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("critique", attempts, lastError);
     this.metrics.recordAi(
       "critique",
       "fallback",
@@ -365,7 +387,7 @@ export class AiService {
     const fallback = heuristicCritique(parsed.document, viewport);
     return {
       ...fallback,
-      summary: `⚠️ AI không trả về critique hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+      summary: `⚠️ AI không trả về critique hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng phân tích cục bộ. ${fallback.summary}`,
     };
   }
 
@@ -478,6 +500,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("dummy", attempts, lastError);
     this.metrics.recordAi(
       "dummy",
       "fallback",
@@ -492,7 +515,7 @@ export class AiService {
     });
     return {
       ...fallback,
-      summary: `⚠️ AI không trả về dữ liệu hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng dữ liệu mẫu cục bộ. ${fallback.summary}`,
+      summary: `⚠️ AI không trả về dữ liệu hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng dữ liệu mẫu cục bộ. ${fallback.summary}`,
     };
   }
 
@@ -591,6 +614,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("responsive", attempts, lastError);
     this.metrics.recordAi(
       "responsive",
       "fallback",
@@ -601,7 +625,7 @@ export class AiService {
     const fallback = heuristicResponsiveOptimization(parsed.document, breakpoints);
     return {
       ...fallback,
-      summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+      summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng phân tích cục bộ. ${fallback.summary}`,
     };
   }
 
@@ -696,6 +720,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("recommend", attempts, lastError);
     this.metrics.recordAi(
       "recommend",
       "fallback",
@@ -706,7 +731,7 @@ export class AiService {
     const fallback = heuristicRecommendations(parsed.document, parsed.prompt ?? "", max);
     return {
       ...fallback,
-      summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+      summary: `⚠️ AI không trả về gợi ý hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng phân tích cục bộ. ${fallback.summary}`,
     };
   }
 
@@ -808,6 +833,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("image", attempts, lastError);
     this.metrics.recordAi(
       "image",
       "fallback",
@@ -817,7 +843,7 @@ export class AiService {
     );
     return {
       document: buildFallback(),
-      summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ từ ảnh.`,
+      summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng phân tích cục bộ từ ảnh.`,
       source: "heuristic",
       image,
     };
@@ -902,6 +928,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("url", attempts, lastError);
     this.metrics.recordAi(
       "url",
       "fallback",
@@ -911,7 +938,7 @@ export class AiService {
     );
     return {
       document: buildFallback(),
-      summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ từ HTML.`,
+      summary: `⚠️ AI không trả về mockup hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng phân tích cục bộ từ HTML.`,
       source: "heuristic",
       url: page.url,
       site,
@@ -933,6 +960,14 @@ export class AiService {
       parsed.mimeType,
       MAX_AI_IMAGE_BYTES,
     );
+
+    // A PNG whose IHDR claims unsafe dimensions would decompress into a huge
+    // buffer; reject it up front with a clean 400 instead of falling back.
+    if (parsed.mimeType === "image/png" && isPngDecompressionBomb(data)) {
+      throw new BadRequestException(
+        "Ảnh có kích thước giải nén quá lớn và bị chặn để bảo vệ server",
+      );
+    }
 
     const clientPalette = parsed.palette ? paletteFromHexList(parsed.palette) : [];
     const localColors =
@@ -1011,6 +1046,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("design", attempts, lastError);
     this.metrics.recordAi(
       "design",
       "fallback",
@@ -1021,7 +1057,7 @@ export class AiService {
     const fallback = localResult();
     return {
       ...fallback,
-      summary: `⚠️ AI không trả về bảng màu hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng phân tích cục bộ. ${fallback.summary}`,
+      summary: `⚠️ AI không trả về bảng màu hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng phân tích cục bộ. ${fallback.summary}`,
     };
   }
 
@@ -1114,6 +1150,7 @@ export class AiService {
       }
     }
 
+    this.logAiError("multi", attempts, lastError);
     this.metrics.recordAi(
       "multi",
       "fallback",
@@ -1124,7 +1161,7 @@ export class AiService {
     const fallback = buildFallback();
     return {
       ...fallback,
-      summary: `⚠️ AI không trả về bộ trang hợp lệ sau ${this.MAX_RETRIES + 1} lần (${lastError}). Đã dùng bộ dựng cục bộ. ${fallback.summary}`,
+      summary: `⚠️ AI không trả về bộ trang hợp lệ sau ${this.MAX_RETRIES + 1} lần. Đã dùng bộ dựng cục bộ. ${fallback.summary}`,
       source: "heuristic",
     };
   }
@@ -1156,8 +1193,36 @@ function ensureIdsUnique(doc: UiDocument): void {
   visit(doc.root);
 }
 
-/** Patch reference validation — reject edits against unknown ids/types early. */
-function validatePatchTargets(patch: UiPatch, doc: UiDocument): void {
+/**
+ * First path segments a model may NEVER write through an update patch's
+ * `changes`. The `props.*` / `styles.*` / `responsive.*` / `name` / `hidden` /
+ * `locked` / `text` prefixes are the only sanctioned targets; anything that
+ * could reach an object's prototype chain (`__proto__`, `constructor`,
+ * `prototype`) or a structural node field (`id`, `type`, `children`) is
+ * rejected here so a malicious or hallucinated patch fails with a clean 400 /
+ * retry instead of polluting shared prototypes or corrupting the tree mid-apply.
+ */
+const FORBIDDEN_CHANGE_ROOTS = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+  "id",
+  "type",
+  "children",
+]);
+
+/** True when any dotted `changes` key resolves to a forbidden root segment. */
+function hasForbiddenChangeKey(changes: Record<string, unknown>): boolean {
+  return Object.keys(changes).some((key) =>
+    FORBIDDEN_CHANGE_ROOTS.has(key.split(".")[0]),
+  );
+}
+
+/**
+ * Patch reference validation — reject edits against unknown ids/types early.
+ * Exported for unit tests; only called from `edit` in production code.
+ */
+export function validatePatchTargets(patch: UiPatch, doc: UiDocument): void {
   const validIds = new Set(collectIds(doc.root));
   const validTypes = new Set(collectDistinctTypes(doc.root));
 
@@ -1173,6 +1238,11 @@ function validatePatchTargets(patch: UiPatch, doc: UiDocument): void {
       }
       break;
     case "update":
+      requireId(patch.targetId, "targetId");
+      if (hasForbiddenChangeKey(patch.changes)) {
+        throw new Error("Patch contains a disallowed change key");
+      }
+      break;
     case "style":
     case "remove":
     case "replace":
@@ -1181,6 +1251,9 @@ function validatePatchTargets(patch: UiPatch, doc: UiDocument): void {
     case "move":
       requireId(patch.targetId, "targetId");
       requireId(patch.newParentId, "newParentId");
+      if (patch.newParentId === patch.targetId) {
+        throw new Error("Cannot move a component into itself");
+      }
       break;
   }
   void validTypes;

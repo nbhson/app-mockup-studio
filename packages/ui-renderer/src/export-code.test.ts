@@ -5,6 +5,7 @@ import {
   exportDocumentToHtml,
   exportDocumentToReact,
   exportDocumentToVue,
+  exportDesignToCode,
 } from "./index";
 
 function makeDoc(overrides: Partial<UiDocument> = {}): UiDocument {
@@ -102,5 +103,55 @@ describe("code export", () => {
     expect(exportDocumentToCode(makeDoc(), "html")).toContain("<!doctype html>");
     expect(exportDocumentToCode(makeDoc(), "react")).toContain("export default function");
     expect(exportDocumentToCode(makeDoc(), "vue")).toContain("<template>");
+  });
+});
+
+describe("export hardening (deep-check remediation)", () => {
+  it("neutralizes code injection through the document name in the React header", () => {
+    const doc = makeDoc({ name: "Bad\nconsole.log('INJECTED') //x" });
+    const code = exportDocumentToReact(doc);
+    const lines = code.split("\n");
+    // The header comment must stay ONE line: the payload cannot become live
+    // top-level code again.
+    expect(lines[0]).toContain("console.log('INJECTED')");
+    expect(lines[1]).toBe("// Inline styles only, no external dependencies.");
+    expect(code).not.toMatch(/^\s*console\.log/m);
+  });
+
+  it("keeps boolean attributes distinguishable from string 'true' values (Vue)", () => {
+    const doc = makeDoc();
+    doc.root.children = [
+      { id: "btn", type: "basic.button", props: { label: "OK", disabled: true } },
+      { id: "in", type: "basic.input", props: { placeholder: "true" } },
+    ];
+    const vue = exportDocumentToVue(doc);
+    expect(vue).toMatch(/<button[^>]*\bdisabled>/);
+    // A literal string "true" placeholder must keep its value, not degrade
+    // into a bare attribute.
+    expect(vue).toContain('placeholder="true"');
+    const react = exportDocumentToReact(doc);
+    expect(react).toContain("disabled");
+    expect(react).toContain('placeholder={"true"}');
+  });
+
+  it("sanitizes CSS-metacharacter breakouts in generated stylesheets", () => {
+    const doc = makeDoc({
+      name: "Evil",
+      theme: {
+        ...makeDoc().theme,
+        fontFamily: "Inter; } * { background: url('https://evil.example/track'); @import 'x'",
+      },
+    });
+    const bundle = exportDesignToCode(doc, "html");
+    const css = bundle.files.map((f) => f.content).join("\n");
+    // The token value must not be able to open new rules or load externals.
+    expect(css).not.toContain("evil.example");
+    expect(css).not.toContain("@import");
+    const familyLine = css.split("\n").find((l) => l.includes("--font-family"));
+    expect(familyLine).toBeDefined();
+    // Exactly one semicolon: the declaration's own terminator — the value
+    // cannot inject extra declarations or rules.
+    expect(familyLine!.split(";")).toHaveLength(2);
+    expect(familyLine).not.toMatch(/[{}]/);
   });
 });

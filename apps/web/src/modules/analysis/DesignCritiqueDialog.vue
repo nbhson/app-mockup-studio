@@ -71,11 +71,20 @@ async function run() {
   if (!doc.document || loading.value) return;
   loading.value = true;
   error.value = null;
+  // Pin the project/page: a critique computed for the document the user has
+  // since navigated away from must not populate Apply buttons for it.
+  const ctx = doc.captureContext();
   try {
-    result.value = await api.post<DesignCritiqueResult>("/ai/critique", {
+    const response = await api.post<DesignCritiqueResult>("/ai/critique", {
       document: doc.document,
       viewportMode: doc.viewportMode,
     });
+    if (!doc.isContextCurrent(ctx)) {
+      error.value =
+        "Bạn đã chuyển trang/dự án trong lúc phân tích — kết quả không được áp dụng.";
+      return;
+    }
+    result.value = response;
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Không chạy được critique";
   } finally {
@@ -110,7 +119,21 @@ function applyFixes(
     };
   });
 
-  const next: UiDocument = applyPatchBatch(doc.document, patches);
+  // The critique was computed against an older snapshot, so a finding may
+  // target a node that has since been deleted. `applyPatchBatch` throws in
+  // that case BEFORE any state changes — the whole batch is atomic, nothing
+  // partial is applied and no no-op entry reaches the undo history. Show an
+  // error and force a fresh run instead of falsely reporting "Applied".
+  let next: UiDocument;
+  try {
+    next = applyPatchBatch(doc.document, patches);
+  } catch {
+    appliedMessage.value = null;
+    result.value = null;
+    error.value =
+      "Tài liệu đã thay đổi (có component bị xoá sau khi phân tích) — vui lòng chạy lại critique.";
+    return;
+  }
   doc.mutate(next, "Áp dụng gợi ý design critique");
   appliedMessage.value = `Đã áp dụng ${selected.length} gợi ý.`;
   void run();

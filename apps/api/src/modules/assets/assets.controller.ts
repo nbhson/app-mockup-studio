@@ -112,11 +112,24 @@ export class AssetsController {
 
     res.setHeader("Content-Type", asset.mimeType);
     res.setHeader("Content-Length", data.length);
-    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    // `private`: the response is behind project auth, so a shared CDN/proxy
+    // must NOT cache it where another tenant's request could hit the copy.
+    // The content itself is immutable per asset id, so browsers can still
+    // cache it for a year.
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    // RFC 5987/6266: keep a sanitized ASCII fallback for old agents and a
+    // percent-encoded `filename*` so Vietnamese names survive intact without
+    // allowing CR/LF or quote injection into the header.
+    const ascii = asset.fileName
+      .replace(/[^\x20-\x7E]/g, "_")
+      .replace(/["\\]/g, "")
+      .slice(0, 120);
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="${asset.fileName.replace(/["\\]/g, "")}"`,
+      `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(
+        asset.fileName,
+      ).replace(/%20/g, "+")}`,
     );
     res.end(data);
   }

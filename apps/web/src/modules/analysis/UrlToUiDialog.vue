@@ -48,11 +48,20 @@ async function run() {
   loading.value = true;
   error.value = null;
   result.value = null;
+  // Pin the project/page the analysis was started on — the fetch + AI pass
+  // can outlive a project switch, and setDocument would then replace the
+  // NEW project's canvas with the old context's result.
+  const ctx = doc.captureContext();
   try {
     const response = await api.post<UrlToUiResult>("/ai/url-to-ui", {
       url: value,
       prompt: prompt.value.trim() || undefined,
     });
+    if (!doc.isContextCurrent(ctx)) {
+      error.value =
+        "Bạn đã chuyển trang/dự án trong lúc phân tích — kết quả không được áp dụng.";
+      return;
+    }
     doc.setDocument(response.document);
     result.value = response;
   } catch (e) {

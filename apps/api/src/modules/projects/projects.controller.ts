@@ -326,9 +326,17 @@ export class ProjectsController {
     @Req() req: Request,
   ): Promise<{ ok: boolean }> {
     await this.access.assertProjectRole(id, "owner", req);
-    await this.db.client.delete(documents).where(eq(documents.projectId, id));
-    await this.db.client.delete(projectMembers).where(eq(projectMembers.projectId, id));
-    await this.db.client.delete(projects).where(eq(projects.id, id));
+    // One transaction, not three implicit ones. If the middle statement had
+    // failed, the project survived with its document/member rows already gone
+    // — a destroyed workspace that could not be recovered or re-deleted.
+    await this.db.client.transaction(async (tx) => {
+      await tx.delete(documents).where(eq(documents.projectId, id));
+      await tx.delete(projectMembers).where(eq(projectMembers.projectId, id));
+      // Children with `onDelete: "cascade"` FKs (pages, revisions, comments,
+      // design-system links) are dropped by the database when the project row
+      // goes; assets detach via `SET NULL`.
+      await tx.delete(projects).where(eq(projects.id, id));
+    });
     return { ok: true };
   }
 }

@@ -107,7 +107,12 @@ export async function ensureHomePage(
 
   const schema = doc.schema as unknown as UiDocument;
   const slug = await uniqueSlug(db, projectId, "home");
-  const [page] = await db.client
+  // `uniqueSlug` reads then inserts, so two users opening the same legacy
+  // project concurrently can both pick "home". The unique index
+  // (project_id, slug) then made the loser throw 23505 → 500. Insert with
+  // ON CONFLICT DO NOTHING and treat "someone else won the race" as success:
+  // re-select and return their row — the migration result is identical.
+  let [page] = await db.client
     .insert(pages)
     .values({
       projectId,
@@ -116,7 +121,20 @@ export async function ensureHomePage(
       position: 0,
       documentId: doc.id,
     })
+    .onConflictDoNothing({ target: [pages.projectId, pages.slug] })
     .returning();
+
+  if (!page) {
+    const [winner] = await db.client
+      .select()
+      .from(pages)
+      .where(and(eq(pages.projectId, projectId), eq(pages.slug, slug)))
+      .limit(1);
+    if (!winner) {
+      throw new Error(`Không tạo được trang home cho dự án ${projectId}`);
+    }
+    page = winner;
+  }
 
   await db.client
     .update(projects)

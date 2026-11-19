@@ -26,17 +26,48 @@ async function submit() {
   const prompt = draft.value.trim();
   if (!prompt) return;
 
+  // Pin the project/page the request was made for: the AI round-trip can
+  // take many seconds, and applying a late result to whatever the user
+  // navigated to in the meantime would silently write the wrong document.
+  const ctx = doc.captureContext();
+  const dropped = () =>
+    ai.messages.push({
+      role: "assistant",
+      content:
+        "⚠️ Bạn đã chuyển trang/dự án trong lúc AI xử lý — kết quả đã bị bỏ qua.",
+    });
+
   if (doc.document) {
     // Conversational edit on the current document (same session).
     await ai.edit(prompt, doc.document, doc.selectedId, (result) => {
-      if (result.patches.length > 0) doc.applyPatches(result.patches, "Chỉnh sửa bằng AI");
-      else if (result.document) doc.setDocument(result.document);
+      if (!doc.isContextCurrent(ctx)) {
+        dropped();
+        return;
+      }
+      try {
+        // Atomic: applyPatchBatch throws when a patch targets a node that no
+        // longer exists, and it does so BEFORE the command is recorded — so
+        // nothing is applied and no no-op entry lands in the undo stack.
+        if (result.patches.length > 0) doc.applyPatches(result.patches, "Chỉnh sửa bằng AI");
+        else if (result.document) doc.setDocument(result.document);
+      } catch {
+        ai.messages.push({
+          role: "assistant",
+          content: "⚠️ Tài liệu đã thay đổi, vui lòng thử lại.",
+        });
+      }
     });
   } else {
     // First message → full generation.
     await ai.generate(
       prompt,
-      (newDoc) => doc.setDocument(newDoc),
+      (newDoc) => {
+        if (!doc.isContextCurrent(ctx)) {
+          dropped();
+          return;
+        }
+        doc.setDocument(newDoc);
+      },
       doc.viewportMode,
     );
   }

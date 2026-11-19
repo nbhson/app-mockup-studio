@@ -277,7 +277,10 @@ const canResize = computed(
 
 function nodeRect(id: string): { left: number; top: number; width: number; height: number } | null {
   if (!pageEl.value) return null;
-  const el = document.querySelector(`[data-node-id="${CSS.escape(id)}"]`);
+  // Scope to the rendered page: a global querySelector could match a
+  // `[data-node-id]` outside the canvas (e.g. the shared preview or a
+  // dialog's thumbnail clone of the same document).
+  const el = pageEl.value.querySelector(`[data-node-id="${CSS.escape(id)}"]`);
   if (!el) return null;
   // The outline lives inside the page element, so its coordinates must be
   // relative to the page — not to the outer scroll container.
@@ -610,6 +613,13 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (isTypingTarget(e.target)) return;
 
+  // Every dialog renders a Teleported `role="dialog"` panel that registers
+  // its own Escape handler. While one is open it owns the keyboard: Escape
+  // must only close the dialog (not ALSO clear the canvas selection), and
+  // Delete/Ctrl+A/C/V/Z behind the modal would mutate the document the user
+  // is not looking at. The DOM probe is the least-invasive reliable signal.
+  if (document.querySelector('[role="dialog"]')) return;
+
   if (e.key === "Escape") {
     if (marqueeStart) {
       cancelMarquee();
@@ -638,7 +648,16 @@ function onKeydown(e: KeyboardEvent) {
     doc.removeNodes([...doc.selectedIds]);
   } else if (mod && key === "c" && doc.selectedIds.length > 0) {
     e.preventDefault();
-    editor.setClipboard(doc.selectedNodes);
+    // Only the TOP-MOST selected nodes go on the clipboard: when a container
+    // and one of its descendants are both selected, the container's subtree
+    // already carries the descendant, so copying both would paste a duplicate
+    // child (same helper delete/move already use).
+    const root = doc.document?.root;
+    const top = root
+      ? topMostIds(root, [...doc.selectedIds])
+      : [...doc.selectedIds];
+    const nodes = doc.selectedNodes.filter((node) => top.includes(node.id));
+    editor.setClipboard(nodes);
   } else if (mod && key === "v" && editor.clipboard.length > 0) {
     e.preventDefault();
     pasteClipboard();

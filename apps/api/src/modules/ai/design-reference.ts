@@ -24,6 +24,53 @@ export const DEFAULT_PALETTE: PaletteColor[] = [
   { hex: "#E2E8F0", share: 0.05 },
 ];
 
+// --- Decompression-bomb limits --------------------------------------------
+//
+// The IHDR chunk is attacker-controlled, so a tiny IDAT stream can claim to
+// inflate into a gigabyte-scale raw image. We refuse to inflate anything past
+// these bounds, and cap zlib output with maxOutputLength, so a "zip bomb"
+// upload fails fast with a 400 instead of exhausting memory mid-request.
+const MAX_PNG_DIMENSION = 16384; // pixels per side
+const MAX_PNG_PIXELS = 50_000_000; // width * height
+
+interface PngHeader {
+  width: number;
+  height: number;
+  bitDepth: number;
+  colorType: number;
+}
+
+/** Read the IHDR header of a PNG buffer, or null when it is not a valid PNG. */
+function readPngHeader(data: Buffer): PngHeader | null {
+  if (data.length < 33 || data.readUInt32BE(0) !== 0x89504e47) return null;
+  // Signature (8) + chunk length (4) + "IHDR" (4) ⇒ header starts at 16.
+  const type = data.toString("ascii", 12, 16);
+  if (type !== "IHDR") return null;
+  return {
+    width: data.readUInt32BE(16),
+    height: data.readUInt32BE(20),
+    bitDepth: data[24],
+    colorType: data[25],
+  };
+}
+
+/**
+ * True when `data` is a PNG whose declared dimensions would decompress into an
+ * unsafe buffer. Callers use this to return a clean 400 before any inflate.
+ */
+export function isPngDecompressionBomb(data: Buffer): boolean {
+  const header = readPngHeader(data);
+  if (!header) return false;
+  const { width, height } = header;
+  return (
+    width === 0 ||
+    height === 0 ||
+    width > MAX_PNG_DIMENSION ||
+    height > MAX_PNG_DIMENSION ||
+    width * height > MAX_PNG_PIXELS
+  );
+}
+
 // --- Color math ------------------------------------------------------------
 
 export function normalizeHex(value: string): string | null {
@@ -224,11 +271,20 @@ export function extractPngPalette(data: Buffer): PaletteColor[] | null {
     return null;
   }
 
+  // Reject a decompression bomb BEFORE allocating/inflating anything large.
+  if (isPngDecompressionBomb(data)) return null;
+
   const channels = colorType === 6 ? 4 : 3;
   const stride = width * channels;
   let raw: Buffer;
   try {
-    raw = inflateSync(Buffer.concat(idat));
+    // Bit-depth-8 RGB/RGBA: each scanline is `stride` bytes plus a 1-byte
+    // filter tag, so the fully-expanded raster is at most height*(stride+1).
+    // Cap zlib output at exactly that (plus slack) so a small IDAT cannot
+    // inflate into an unbounded buffer.
+    raw = inflateSync(Buffer.concat(idat), {
+      maxOutputLength: height * (stride + 1) + 64,
+    });
   } catch {
     return null;
   }

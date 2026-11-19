@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
-import type { UiDocument } from "@ai-mockup-studio/ui-schema";
+import { walkTree, type UiDocument } from "@ai-mockup-studio/ui-schema";
 import { topMostIds, useDocumentStore } from "./document";
+import { cloneWithNewIds } from "../modules/canvas/clone-nodes";
 
 function makeDocument(): UiDocument {
   return {
@@ -176,5 +177,55 @@ describe("document store selection", () => {
     expect(store.document?.root.children?.map((node) => node.id)).toContain(
       "button",
     );
+  });
+
+  it("copies nested selections top-most only, so paste clones each node once", () => {
+    // Mirrors Canvas' Ctrl+C pipeline: topMostIds(selectedIds) → clipboard →
+    // cloneWithNewIds → add patches. Copying "section" AND its child "card"
+    // must put only the container on the clipboard — its clone already
+    // carries the card, so keeping both duplicated the child on paste.
+    const store = useDocumentStore();
+    store.setDocument(makeDocument());
+    store.setSelection(["section", "card", "button"], "section");
+
+    const root = store.document!.root;
+    const top = topMostIds(root, [...store.selectedIds]);
+    expect(top).toEqual(["section", "button"]);
+    const clipboard = store.selectedNodes.filter((node) =>
+      top.includes(node.id),
+    );
+    expect(clipboard.map((node) => node.id)).toEqual(["section", "button"]);
+
+    const clones = cloneWithNewIds(clipboard);
+    store.applyPatches(
+      clones.map((node) => ({ op: "add" as const, parentId: "root", node })),
+      "Dán 2 component",
+    );
+
+    const counts = new Map<string, number>();
+    walkTree(store.document!.root, (node) => {
+      counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+    });
+    // Exactly one extra card (inside the section clone) and one extra button.
+    expect(counts.get("formal.card")).toBe(2);
+    expect(counts.get("basic.button")).toBe(2);
+    expect(counts.get("basic.text")).toBe(2);
+  });
+
+  it("captureContext/isContextCurrent detect navigation during async work", () => {
+    const store = useDocumentStore();
+    store.setProject("p1");
+    store.currentPageId = "page-1";
+    const ctx = store.captureContext();
+    expect(store.isContextCurrent(ctx)).toBe(true);
+
+    // Same project, other page → stale.
+    store.currentPageId = "page-2";
+    expect(store.isContextCurrent(ctx)).toBe(false);
+
+    // Same page id in another project → still stale (ids are not unique).
+    store.currentPageId = "page-1";
+    store.setProject("p2");
+    expect(store.isContextCurrent(ctx)).toBe(false);
   });
 });

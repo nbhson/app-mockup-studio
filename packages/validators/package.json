@@ -1,7 +1,7 @@
 {
   "name": "@ai-mockup-studio/validators",
   "version": "0.1.0",
-  "description": "Zod schemas — runtime validation for UI schema, patches and API bodies",
+  "description": "Zod schemas \u2014 runtime validation for UI schema, patches and API bodies",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -14,12 +14,15 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-mockup-studio/ui-schema": "workspace:*",
@@ -28,6 +31,7 @@
   },
   "devDependencies": {
     "tsup": "^9.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
   }
 }

@@ -78,6 +78,17 @@ describe("MockupClient", () => {
     expect(calls[0].url).toContain("/versions?pageId=page-7");
   });
 
+  it("percent-encodes ids used as URL path segments", async () => {
+    const { calls, fetch } = stubFetch({ status: 200, body: { page: null, document: null } });
+    const client = new MockupClient({ baseUrl: "http://x/api", fetch: fetch as never });
+    // An id containing "/", "?" or spaces must not break out of its segment.
+    await client.getPage("proj /1", "page?x=2");
+    expect(calls[0].url).toBe("http://x/api/projects/proj%20%2F1/pages/page%3Fx%3D2");
+
+    await client.restoreVersion("a/b", "c?d");
+    expect(calls[1].url).toBe("http://x/api/projects/a%2Fb/versions/c%3Fd/restore");
+  });
+
   it("throws MockupError with the server message on non-2xx", async () => {
     const { fetch } = stubFetch({
       status: 409,

@@ -177,3 +177,104 @@ describe("resolveDocument", () => {
     expect(content.styles.width).toBe(600);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Deep-check remediation (2026-11-19): guards that close the prototype
+// pollution, subtree-loss and export-injection holes.
+// ---------------------------------------------------------------------------
+
+describe("patch security guards", () => {
+  it("rejects __proto__/constructor/prototype change keys (prototype pollution)", () => {
+    const doc = makeDoc();
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "update", targetId: "root", changes: { "__proto__.polluted": "yes" } },
+      ]),
+    ).toThrow();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "update", targetId: "root", changes: { "props.constructor.bad": 1 } },
+      ]),
+    ).toThrow();
+  });
+
+  it("rejects structural change keys (id/type/children)", () => {
+    const doc = makeDoc();
+    for (const key of ["children", "id", "type"]) {
+      expect(() =>
+        applyPatchBatch(doc, [{ op: "update", targetId: "btn", changes: { [key]: "oops" } }]),
+      ).toThrow();
+    }
+  });
+
+  it("throws when update/style targets a missing node instead of silently no-op", () => {
+    const doc = makeDoc();
+    expect(() =>
+      applyPatchBatch(doc, [{ op: "update", targetId: "ghost", changes: { "props.x": 1 } }]),
+    ).toThrow(/not found/);
+    expect(() =>
+      applyPatchBatch(doc, [{ op: "style", targetId: "ghost", styles: { width: 1 } }]),
+    ).toThrow(/not found/);
+  });
+
+  it("rejects move into itself or into its own subtree (silent data loss)", () => {
+    const doc = makeDoc();
+    expect(() =>
+      applyPatchBatch(doc, [{ op: "move", targetId: "content", newParentId: "content" }]),
+    ).toThrow(/itself/);
+    // btn is inside content — moving content under btn would detach both.
+    expect(() =>
+      applyPatchBatch(doc, [{ op: "move", targetId: "content", newParentId: "btn" }]),
+    ).toThrow(/subtree/);
+    const after = applyPatchBatch(doc, []);
+    expect(after.root.children!.length).toBe(2);
+  });
+
+  it("rejects negative index on add/move", () => {
+    const doc = makeDoc();
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "add", parentId: "content", index: -1, node: { id: "x1", type: "typography.text" } },
+      ]),
+    ).toThrow(/index/);
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "move", targetId: "sb", newParentId: "content", index: -2 },
+      ]),
+    ).toThrow(/index/);
+  });
+
+  it("rejects add/replace that would create duplicate node ids", () => {
+    const doc = makeDoc();
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "add", parentId: "content", node: { id: "btn", type: "basic.button" } },
+      ]),
+    ).toThrow(/unique|exists/);
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "replace", targetId: "btn", node: { id: "dup", type: "basic.button", children: [{ id: "sb", type: "layout.sidebar" }] } },
+      ]),
+    ).toThrow(/exists/);
+  });
+
+  it("rejects adding a child into a non-container parent", () => {
+    const doc = makeDoc();
+    expect(() =>
+      applyPatchBatch(doc, [
+        { op: "add", parentId: "btn", node: { id: "kid", type: "typography.text" } },
+      ]),
+    ).toThrow(/not a container/);
+  });
+
+  it("renders no children for non-container types (matches the exporters)", () => {
+    const doc = makeDoc();
+    doc.root.children![1].children = [
+      { id: "btn", type: "basic.button", children: [{ id: "kid", type: "typography.text" }] },
+    ];
+    const resolved = resolveDocument(doc);
+    const btn = resolved.children!.find((c) => c.id === "content")!.children!.find((c) => c.id === "btn")!;
+    expect(btn.children).toBeUndefined();
+  });
+});

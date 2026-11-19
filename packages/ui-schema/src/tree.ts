@@ -5,25 +5,38 @@ import type { UiDocument, UiNode } from "./schema";
  * the AI patch generator. They are pure functions over the immutable tree.
  */
 
-/** Depth-first traversal, visiting parent before children. Mutates nothing. */
+/** Depth-first traversal, visiting parent before children. Mutates nothing.
+ *  Carries a visited set so a detached/cyclic reference can never loop forever. */
 export function walkTree(
   root: UiNode,
   visit: (node: UiNode, parentId: string | null, depth: number) => void,
 ): void {
+  const seen = new Set<UiNode>();
   const rec = (node: UiNode, parentId: string | null, depth: number) => {
+    if (seen.has(node)) return;
+    seen.add(node);
     visit(node, parentId, depth);
     for (const child of node.children ?? []) rec(child, node.id, depth + 1);
   };
   rec(root, null, 0);
 }
 
-/** Find a node by id. Returns undefined if not found. */
+/** Find a node by id — the FIRST depth-first match, stopping immediately.
+ *  Returning the last match (as a full walk would) makes lookups disagree
+ *  with mutation code that also visits first-match. */
 export function findNode(root: UiNode, id: string): UiNode | undefined {
-  let result: UiNode | undefined;
-  walkTree(root, (node) => {
-    if (node.id === id) result = node;
-  });
-  return result;
+  const seen = new Set<UiNode>();
+  const rec = (node: UiNode): UiNode | undefined => {
+    if (seen.has(node)) return undefined;
+    seen.add(node);
+    if (node.id === id) return node;
+    for (const child of node.children ?? []) {
+      const found = rec(child);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return rec(root);
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -32,6 +33,7 @@ import {
   updateOrganizationSchema,
 } from "@ai-mockup-studio/validators";
 import { AccessService } from "../../common/access.service";
+import { isUniqueViolation } from "../../common/db-error";
 import { DbService } from "../../db/db.service";
 import { organizationMembers, organizations, users } from "../../db/schema";
 import { toOrgDto, toOrgMemberDto } from "./organizations.service";
@@ -44,6 +46,8 @@ import { toOrgDto, toOrgMemberDto } from "./organizations.service";
  */
 @Controller("organizations")
 export class OrganizationsController {
+  private readonly logger = new Logger(OrganizationsController.name);
+
   constructor(
     private readonly db: DbService,
     private readonly access: AccessService,
@@ -244,14 +248,33 @@ export class OrganizationsController {
       throw new BadRequestException("Người dùng này đã là thành viên của tổ chức.");
     }
 
-    const [row] = await this.db.client
-      .insert(organizationMembers)
-      .values({
-        organizationId: orgId,
-        userId: target.id,
-        role: parsed.role,
-      })
-      .returning();
+    let row: typeof organizationMembers.$inferSelect;
+    try {
+      [row] = await this.db.client
+        .insert(organizationMembers)
+        .values({
+          organizationId: orgId,
+          userId: target.id,
+          role: parsed.role,
+        })
+        .returning();
+    } catch (error) {
+      // Same contract as MembersController.add: a race past the pre-check
+      // maps to the identical 400 wording instead of a 500 echoing the
+      // driver's constraint name.
+      if (isUniqueViolation(error)) {
+        this.logger.warn(
+          `Concurrent add of ${parsed.email} to organization ${orgId}: ${
+            (error as Error).message
+          }`,
+        );
+        throw new BadRequestException(
+          "Người dùng này đã là thành viên của tổ chức.",
+        );
+      }
+      this.logger.error("addOrganizationMember failed", error as Error);
+      throw error;
+    }
 
     return toOrgMemberDto(
       {

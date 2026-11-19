@@ -1,16 +1,44 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   knownComponentTypes,
   walkTree,
   type UiNode,
 } from "@ai-mockup-studio/ui-schema";
 import { uiDocumentSchema } from "@ai-mockup-studio/validators";
+
+vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
+import { lookup } from "node:dns/promises";
 import {
   assertSafeUrl,
   heuristicUrlToUi,
   isPrivateIp,
+  makeValidatingLookup,
   parseHtmlSnapshot,
 } from "./url-to-ui";
+
+const mockedLookup = lookup as unknown as ReturnType<typeof vi.fn>;
+
+interface LookupResult {
+  err: (NodeJS.ErrnoException | null);
+  address: string | { address: string; family: number }[];
+  family?: number;
+}
+
+/** Invoke the validating lookup once (it is callback-based, internally async). */
+function runValidatingLookup(
+  hostname: string,
+  records: Array<{ address: string; family: number }>,
+  options: Record<string, unknown> = {},
+): Promise<LookupResult> {
+  mockedLookup.mockResolvedValue(records);
+  return new Promise((resolve) => {
+    makeValidatingLookup()(
+      hostname,
+      options as never,
+      (err, address, family) => resolve({ err, address, family }),
+    );
+  });
+}
 
 const HTML = `<!doctype html>
 <html>
@@ -39,6 +67,7 @@ function collectTypes(root: UiNode): string[] {
 
 afterEach(() => {
   delete process.env.URL_TO_UI_ALLOWED_HOSTS;
+  mockedLookup.mockReset();
 });
 
 describe("isPrivateIp", () => {
@@ -57,6 +86,7 @@ describe("isPrivateIp", () => {
       "fd12::1",
       "fe80::1",
       "::ffff:127.0.0.1",
+      "2001:0000:4136:e378:8000:63bf:3fff:fdd2",
     ]) {
       expect(isPrivateIp(address), address).toBe(true);
     }
@@ -66,6 +96,40 @@ describe("isPrivateIp", () => {
     for (const address of ["8.8.8.8", "1.1.1.1", "93.184.216.34", "2606:4700:4700::1111"]) {
       expect(isPrivateIp(address), address).toBe(false);
     }
+  });
+});
+
+describe("makeValidatingLookup (DNS-rebinding / TOCTOU defense)", () => {
+  it("refuses a hostname whose DNS mixes a public and a private record", async () => {
+    // The classic rebinding payload: the check sees the public A record, but
+    // libuv might dial the private one. The validator must fail closed.
+    const result = await runValidatingLookup("evil.example", [
+      { address: "93.184.216.34", family: 4 },
+      { address: "127.0.0.1", family: 4 },
+    ]);
+    expect(result.err).not.toBeNull();
+    expect((result.err as NodeJS.ErrnoException).code).toBe("ECONNREFUSED");
+  });
+
+  it("refuses a Teredo address that tunnels to an internal host", async () => {
+    const result = await runValidatingLookup("tun.example", [
+      { address: "2001:0000:0000:0000:0000:0000:7f00:0001", family: 6 },
+    ]);
+    expect((result.err as NodeJS.ErrnoException)?.code).toBe("ECONNREFUSED");
+  });
+
+  it("resolves the socket to a public address when every record is public", async () => {
+    const result = await runValidatingLookup("good.example", [
+      { address: "93.184.216.34", family: 4 },
+    ]);
+    expect(result.err).toBeNull();
+    expect(result.address).toBe("93.184.216.34");
+    expect(result.family).toBe(4);
+  });
+
+  it("errors when DNS returns no records", async () => {
+    const result = await runValidatingLookup("empty.example", []);
+    expect((result.err as NodeJS.ErrnoException)?.code).toBe("ENOTFOUND");
   });
 });
 

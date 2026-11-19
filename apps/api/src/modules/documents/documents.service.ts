@@ -125,64 +125,65 @@ export class DocumentsService {
         .limit(1);
       if (!existing) throw new NotFoundException(`Trang ${page.id} không có document`);
 
-      // Optimistic concurrency (plan/07 4.4): a stale baseVersion means someone
-      // else saved first. Reject instead of silently overwriting their work.
+      // Optimistic concurrency (plan/07 4.4): baseVersion is REQUIRED for an
+      // update of an existing document. `saveDocumentSchema.baseVersion` is
+      // nullable/optional, so we enforce it here rather than loosening the
+      // validator. A missing OR stale baseVersion means we cannot know the
+      // client's starting revision, so we reject with the same 409 shape.
       const conflict = () =>
         new ConflictException({
           message:
             "Document đã được người khác cập nhật. Hãy tải bản mới nhất trước khi lưu.",
           currentVersion: String(existing.revision),
         });
-      if (
-        parsed.baseVersion &&
-        parsed.baseVersion !== String(existing.revision)
-      ) {
+      if (!parsed.baseVersion || parsed.baseVersion !== String(existing.revision)) {
         throw conflict();
       }
+      const expectedBase = existing.revision;
+      // `page` is a `let` (it may be created above); its non-null narrowing
+      // does not survive inside the transaction callback, so capture a const.
+      const pageDocumentId = page.documentId;
 
-      // Before overwriting, keep an immutable snapshot in history (plan/10
-      // versions). Autosave can fire every few seconds, so throttle snapshots
-      // to one per 5 minutes.
-      const [lastVersion] = await this.db.client
-        .select({ createdAt: versions.createdAt })
-        .from(versions)
-        .where(eq(versions.documentId, existing.id))
-        .orderBy(desc(versions.createdAt))
-        .limit(1);
-      const snapshotIntervalMs = 5 * 60 * 1000;
-      const shouldSnapshot =
-        !lastVersion ||
-        Date.now() - lastVersion.createdAt.getTime() > snapshotIntervalMs;
+      // Snapshot + revision-guarded update run in ONE transaction. The
+      // `WHERE revision = expectedBase` closes the read-modify-write race: if
+      // a concurrent writer already bumped the revision, this matches zero
+      // rows and we throw 409 instead of silently clobbering their save.
+      const saved = await this.db.client.transaction(async (tx) => {
+        const [lastVersion] = await tx
+          .select({ createdAt: versions.createdAt })
+          .from(versions)
+          .where(eq(versions.documentId, existing.id))
+          .orderBy(desc(versions.createdAt))
+          .limit(1);
+        const snapshotIntervalMs = 5 * 60 * 1000;
+        const shouldSnapshot =
+          !lastVersion ||
+          Date.now() - lastVersion.createdAt.getTime() > snapshotIntervalMs;
+        if (shouldSnapshot) {
+          await tx.insert(versions).values({
+            documentId: existing.id,
+            projectId: existing.projectId,
+            snapshot: existing.schema as object,
+            note: "Autosave",
+          });
+        }
 
-      if (shouldSnapshot) {
-        await this.db.client.insert(versions).values({
-          documentId: existing.id,
-          projectId: existing.projectId,
-          snapshot: existing.schema as object,
-          note: "Autosave",
-        });
-      }
-
-      // The revision guard closes the race between the check above and the
-      // update: a concurrent writer that already bumped revision makes this
-      // update match zero rows.
-      const guard = parsed.baseVersion
-        ? and(
-            eq(documents.id, page.documentId),
-            eq(documents.revision, existing.revision),
+        const [updated] = await tx
+          .update(documents)
+          .set({
+            schema: parsed.document as unknown as object,
+            schemaVersion: parsed.document.schemaVersion,
+            revision: expectedBase + 1,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(eq(documents.id, pageDocumentId), eq(documents.revision, expectedBase)),
           )
-        : eq(documents.id, page.documentId);
-      const [saved] = await this.db.client
-        .update(documents)
-        .set({
-          schema: parsed.document as unknown as object,
-          schemaVersion: parsed.document.schemaVersion,
-          revision: existing.revision + 1,
-          updatedAt: new Date(),
-        })
-        .where(guard)
-        .returning();
-      if (!saved) throw conflict();
+          .returning();
+        if (!updated) throw conflict();
+        return updated;
+      });
+
       savedAt = saved.updatedAt;
       savedRevision = saved.revision;
 

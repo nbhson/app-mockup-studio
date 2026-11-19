@@ -172,9 +172,13 @@ export const componentRegistry: Record<string, ComponentDefinition> = {
 export const knownComponentTypes: string[] = Object.keys(componentRegistry);
 
 export function getComponentDefinition(type: string): ComponentDefinition | undefined {
-  return componentRegistry[type];
+  // Own-property lookup only: "toString"/"constructor"/"__proto__" are not
+  // component types even though they exist on the prototype chain.
+  return Object.prototype.hasOwnProperty.call(componentRegistry, type)
+    ? componentRegistry[type]
+    : undefined;
 }
 
 export function isKnownComponentType(type: string): boolean {
-  return type in componentRegistry;
+  return getComponentDefinition(type) !== undefined;
 }

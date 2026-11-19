@@ -5,6 +5,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -25,6 +26,7 @@ import {
   updateProjectMemberRoleSchema,
 } from "@ai-mockup-studio/validators";
 import { AccessService } from "../../common/access.service";
+import { isUniqueViolation } from "../../common/db-error";
 import { DbService } from "../../db/db.service";
 import { projectMembers, users } from "../../db/schema";
 import { toMemberDto } from "./members.service";
@@ -37,6 +39,8 @@ import { toMemberDto } from "./members.service";
  */
 @Controller("projects/:projectId/members")
 export class MembersController {
+  private readonly logger = new Logger(MembersController.name);
+
   constructor(
     private readonly db: DbService,
     private readonly access: AccessService,
@@ -131,17 +135,37 @@ export class MembersController {
       )
       .limit(1);
     if (existing.length > 0) {
-      throw new BadRequestException("Người dùng này đã là member của dự án.");
+      throw new BadRequestException("Người dùng này đã là thành viên của dự án.");
     }
 
-    const [row] = await this.db.client
-      .insert(projectMembers)
-      .values({
-        projectId,
-        userId: target.id,
-        role: parsed.role,
-      })
-      .returning();
+    let row: typeof projectMembers.$inferSelect;
+    try {
+      [row] = await this.db.client
+        .insert(projectMembers)
+        .values({
+          projectId,
+          userId: target.id,
+          role: parsed.role,
+        })
+        .returning();
+    } catch (error) {
+      // The unique index (project_id, user_id) can still fire if two admins
+      // added the same person between the pre-check and this insert. Map it
+      // to the same 400 wording as the pre-check (and as the organizations
+      // controller) — never echo the driver's constraint text to clients.
+      if (isUniqueViolation(error)) {
+        this.logger.warn(
+          `Concurrent add of ${parsed.email} to project ${projectId}: ${
+            (error as Error).message
+          }`,
+        );
+        throw new BadRequestException(
+          "Người dùng này đã là thành viên của dự án.",
+        );
+      }
+      this.logger.error("addMember failed", error as Error);
+      throw error;
+    }
 
     return toMemberDto(
       {

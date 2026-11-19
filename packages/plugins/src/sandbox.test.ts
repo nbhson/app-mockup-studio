@@ -122,6 +122,96 @@ describe("plugin sandbox", () => {
     );
   });
 
+  // --- Deep-check remediation (2026-11-19) --------------------------------
+
+  it("blocks realm-bridge escapes from injected api functions (host Function)", () => {
+    const evil: PluginManifest = {
+      id: "realm",
+      name: "Realm",
+      version: "1.0.0",
+      apiVersion: 1,
+      permissions: ["read"],
+      main: `function main(api) {
+        const viaLog = api.app.log.constructor("return typeof process")();
+        const viaDoc = api.document.read().constructor.constructor("return typeof require")();
+        const viaProto = Object.getPrototypeOf(api.document.read).constructor("return typeof process")();
+        return { viaLog, viaDoc, viaProto };
+      }`,
+    };
+    const result = runPlugin({ plugin: evil, document: DOC });
+    // Every constructor climb must land on the CONTEXT's harmless realm.
+    expect(result.returnValue).toEqual({ viaLog: "undefined", viaDoc: "undefined", viaProto: "undefined" });
+  });
+
+  it("cannot reach host functions through the invocation frame (strict-mode bootstrap)", () => {
+    const evil: PluginManifest = {
+      id: "frame",
+      name: "Frame",
+      version: "1.0.0",
+      apiVersion: 1,
+      permissions: ["read"],
+      main: `function main(api) {
+        try { return { leaked: api.document.read.caller !== null }; } catch (_e) { return { leaked: false }; }
+      }`,
+    };
+    expect(runPlugin({ plugin: evil, document: DOC }).returnValue).toEqual({ leaked: false });
+  });
+
+  it("applies the timeout to the compile/evaluate step of an IIFE main (no double side-effects, no host hang)", () => {
+    const iife: PluginManifest = {
+      id: "iife",
+      name: "IIFE",
+      version: "1.0.0",
+      apiVersion: 1,
+      permissions: ["read"],
+      main: `(function(){ while(true) {} })()`,
+    };
+    const started = Date.now();
+    const result = runPlugin({ plugin: iife, document: DOC, timeoutMs: 80 });
+    expect(result.timedOut).toBe(true);
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("enforces maxDocumentBytes exactly (TOCTOU via per-call getters no longer works)", () => {
+    const bloat: PluginManifest = {
+      id: "bloat",
+      name: "Bloat",
+      version: "1.0.0",
+      apiVersion: 1,
+      permissions: ["read", "write"],
+      main: `function main(api) {
+        let first = true;
+        api.document.update({ get big() { const v = first ? "x" : "y".repeat(10 * 1024 * 1024); first = false; return v; } });
+        return 1;
+      }`,
+    };
+    const result = runPlugin({ plugin: bloat, document: DOC, maxDocumentBytes: 1024 });
+    // Whatever got stored is exactly what got measured — no second serialization.
+    expect(JSON.stringify(result.updatedDocument).length).toBeLessThanOrEqual(1024);
+    const oversized: PluginManifest = {
+      ...bloat,
+      id: "oversized",
+      main: `function main(api) { api.document.update({ big: "y".repeat(10 * 1024 * 1024) }); return 1; }`,
+    };
+    expect(() =>
+      runPlugin({ plugin: oversized, document: DOC, maxDocumentBytes: 1024 }),
+    ).toThrow(/vượt giới hạn/);
+  });
+
+  it("caps log output", () => {
+    const chatty: PluginManifest = {
+      id: "chatty",
+      name: "Chatty",
+      version: "1.0.0",
+      apiVersion: 1,
+      permissions: ["read"],
+      main: `function main(api) { for (let i = 0; i < 10000; i++) api.app.log("x".repeat(1000)); return 1; }`,
+    };
+    const result = runPlugin({ plugin: chatty, document: DOC, timeoutMs: 1000 });
+    expect(result.logs.length).toBeLessThanOrEqual(1000);
+    expect(result.logs.join("").length).toBeLessThanOrEqual(400_000);
+  });
+
   it("exposes every built-in plugin and resolves them by id", () => {
     expect(PLUGIN_CATALOG.length).toBeGreaterThanOrEqual(3);
     expect(findPlugin("doc-analyzer")).toBeDefined();

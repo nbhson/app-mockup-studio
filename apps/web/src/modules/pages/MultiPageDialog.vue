@@ -86,6 +86,11 @@ async function apply() {
   if (!result.value || applying.value) return;
   applying.value = true;
   error.value = null;
+  // Pin the project this dialog acts on. A successful replace legitimately
+  // changes the CURRENT PAGE (to the first generated one), so only leaving
+  // this project mid-flight counts as stale — then the store drops the
+  // response and the dialog must not close as if all were fine.
+  const ctx = doc.captureContext();
   try {
     await doc.replacePages({
       pages: result.value.pages.map((page) => ({
@@ -94,6 +99,11 @@ async function apply() {
         document: page.document,
       })),
     });
+    if (doc.projectId !== ctx.projectId) {
+      error.value =
+        "Bạn đã chuyển dự án trong lúc áp dụng — kết quả không được áp dụng cho dự án hiện tại.";
+      return;
+    }
     close();
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Không áp dụng được các trang";

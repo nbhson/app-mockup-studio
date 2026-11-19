@@ -8,8 +8,10 @@ import {
   Param,
   Patch,
   Post,
+  Req,
 } from "@nestjs/common";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import type { Request } from "express";
 import type {
   AddLibraryComponentInput,
   ComponentLibraryDto,
@@ -27,6 +29,7 @@ import {
   updateLibrarySchema,
 } from "@ai-mockup-studio/validators";
 import { DbService } from "../../db/db.service";
+import { AccessService } from "../../common/access.service";
 import { componentLibraries, libraryComponents } from "../../db/schema";
 import {
   buildExportPayload,
@@ -35,9 +38,18 @@ import {
   validateComponentSchema,
 } from "./component-libraries.service";
 
+/**
+ * Shared component library catalog. The tables have no owner column, so reads
+ * are open but every write requires an identified user (401 otherwise) —
+ * otherwise anyone (including logged-out visitors) could edit or delete
+ * libraries every project depends on.
+ */
 @Controller("component-libraries")
 export class ComponentLibrariesController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
   async list(): Promise<ComponentLibraryListResponse> {
@@ -71,7 +83,11 @@ export class ComponentLibrariesController {
   }
 
   @Post()
-  async create(@Body() body: CreateLibraryInput): Promise<ComponentLibraryDto> {
+  async create(
+    @Body() body: CreateLibraryInput,
+    @Req() req: Request,
+  ): Promise<ComponentLibraryDto> {
+    await this.access.assertIdentifiedUser(req);
     const parsed = createLibrarySchema.parse(body);
     const existing = await this.db.client
       .select({ id: componentLibraries.id })
@@ -91,7 +107,11 @@ export class ComponentLibrariesController {
   }
 
   @Post("import")
-  async importLibrary(@Body() body: unknown): Promise<ComponentLibraryDto> {
+  async importLibrary(
+    @Body() body: unknown,
+    @Req() req: Request,
+  ): Promise<ComponentLibraryDto> {
+    await this.access.assertIdentifiedUser(req);
     const payload = body as Partial<LibraryExportPayload>;
     if (payload.kind !== "ai-mockup-studio/component-library") {
       throw new BadRequestException("Định dạng file không hợp lệ.");
@@ -209,7 +229,9 @@ export class ComponentLibrariesController {
   async update(
     @Param("id") id: string,
     @Body() body: UpdateLibraryInput,
+    @Req() req: Request,
   ): Promise<ComponentLibraryDto> {
+    await this.access.assertIdentifiedUser(req);
     const parsed = updateLibrarySchema.parse(body);
     const [existing] = await this.db.client
       .select({ id: componentLibraries.id })
@@ -253,7 +275,9 @@ export class ComponentLibrariesController {
   async addComponent(
     @Param("id") id: string,
     @Body() body: AddLibraryComponentInput,
+    @Req() req: Request,
   ): Promise<LibraryComponentDto> {
+    await this.access.assertIdentifiedUser(req);
     const [lib] = await this.db.client
       .select({ id: componentLibraries.id })
       .from(componentLibraries)
@@ -302,7 +326,9 @@ export class ComponentLibrariesController {
     @Param("id") id: string,
     @Param("componentId") componentId: string,
     @Body() body: UpdateLibraryComponentInput,
+    @Req() req: Request,
   ): Promise<LibraryComponentDto> {
+    await this.access.assertIdentifiedUser(req);
     const [comp] = await this.db.client
       .select()
       .from(libraryComponents)
@@ -337,7 +363,9 @@ export class ComponentLibrariesController {
   async removeComponent(
     @Param("id") id: string,
     @Param("componentId") componentId: string,
+    @Req() req: Request,
   ) {
+    await this.access.assertIdentifiedUser(req);
     const [comp] = await this.db.client
       .select({ id: libraryComponents.id })
       .from(libraryComponents)
@@ -365,7 +393,11 @@ export class ComponentLibrariesController {
   }
 
   @Delete(":id")
-  async remove(@Param("id") id: string): Promise<{ deleted: string }> {
+  async remove(
+    @Param("id") id: string,
+    @Req() req: Request,
+  ): Promise<{ deleted: string }> {
+    await this.access.assertIdentifiedUser(req);
     const [row] = await this.db.client
       .delete(componentLibraries)
       .where(eq(componentLibraries.id, id))

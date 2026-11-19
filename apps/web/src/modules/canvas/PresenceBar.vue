@@ -25,6 +25,33 @@ let socket: WebSocket | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryDelay = 1000;
 let disposed = false;
+/**
+ * A `document:updated` frame received while our own save is in flight was
+ * previously dropped outright: our save response then wrote a baseVersion
+ * older than the remote edit, the next autosave hit a spurious 409, and
+ * "reload latest" discarded the local work. Keep only the newest dropped
+ * event and reprocess it once saving settles.
+ */
+let queuedRemoteUpdate: { pageId: string; updatedAt: string } | null = null;
+
+function handleDocumentUpdate(message: {
+  pageId: string;
+  updatedAt: string;
+}) {
+  if (message.pageId !== doc.currentPageId) return;
+  if (doc.lastSavedAt && new Date(message.updatedAt) <= doc.lastSavedAt) {
+    return; // our own save echo
+  }
+  if (doc.isSaving) {
+    queuedRemoteUpdate = message; // latest wins; replayed when saving ends
+    return;
+  }
+  if (!doc.isDirty) {
+    void doc.reloadLatest();
+  } else {
+    pendingRemote.value = true;
+  }
+}
 
 function disconnect() {
   if (retryTimer) {
@@ -65,19 +92,7 @@ function connect() {
     // hitting a 409 on their next autosave. This used to be received and
     // silently dropped.
     if (message?.type === "document:updated") {
-      if (message.pageId !== doc.currentPageId) return;
-      if (
-        doc.lastSavedAt &&
-        new Date(message.updatedAt) <= doc.lastSavedAt
-      ) {
-        return; // our own save echo
-      }
-      if (doc.isSaving) return; // the response will settle baseVersion shortly
-      if (!doc.isDirty) {
-        void doc.reloadLatest();
-      } else {
-        pendingRemote.value = true;
-      }
+      handleDocumentUpdate(message);
     }
   };
   ws.onerror = () => ws.close();
@@ -98,6 +113,7 @@ watch(
   () => {
     retryDelay = 1000;
     pendingRemote.value = false;
+    queuedRemoteUpdate = null;
     connect();
   },
   { immediate: true },
@@ -107,6 +123,21 @@ watch(
   () => doc.currentPageId,
   () => {
     pendingRemote.value = false;
+    // A queued event for the page we left is meaningless on the new one
+    // (and handleDocumentUpdate would drop it anyway via the pageId check).
+    queuedRemoteUpdate = null;
+  },
+);
+
+// Reprocess the newest remote update that arrived during our save, now that
+// the save response has settled baseVersion/lastSavedAt.
+watch(
+  () => doc.isSaving,
+  (saving) => {
+    if (saving || !queuedRemoteUpdate) return;
+    const queued = queuedRemoteUpdate;
+    queuedRemoteUpdate = null;
+    handleDocumentUpdate(queued);
   },
 );
 

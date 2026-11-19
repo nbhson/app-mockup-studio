@@ -55,6 +55,11 @@ export interface CreateProjectInput {
   description?: string;
 }
 
+/** Encode a value for use as a single URL PATH segment. */
+function enc(value: string): string {
+  return encodeURIComponent(value);
+}
+
 export class MockupClient {
   private readonly fetch: FetchLike;
   private readonly base: string;
@@ -83,25 +88,25 @@ export class MockupClient {
   }
 
   getProject(projectId: string): Promise<ProjectDto> {
-    return this.request("GET", `/projects/${projectId}`);
+    return this.request("GET", `/projects/${enc(projectId)}`);
   }
 
   updateProject(projectId: string, input: UpdateProjectInput): Promise<ProjectDto> {
-    return this.request("POST", `/projects/${projectId}`, input);
+    return this.request("POST", `/projects/${enc(projectId)}`, input);
   }
 
   deleteProject(projectId: string): Promise<{ ok: boolean }> {
-    return this.request("DELETE", `/projects/${projectId}`);
+    return this.request("DELETE", `/projects/${enc(projectId)}`);
   }
 
   duplicateProject(projectId: string): Promise<ProjectDto> {
-    return this.request("POST", `/projects/${projectId}/duplicate`);
+    return this.request("POST", `/projects/${enc(projectId)}/duplicate`);
   }
 
   // -- Documents & pages ----------------------------------------------------
 
   getDocument(projectId: string): Promise<DocumentResponse> {
-    return this.request("GET", `/projects/${projectId}/document`);
+    return this.request("GET", `/projects/${enc(projectId)}/document`);
   }
 
   /**
@@ -113,18 +118,18 @@ export class MockupClient {
     document: UiDocument,
     baseVersion?: string,
   ): Promise<DocumentResponse> {
-    return this.request("POST", `/projects/${projectId}/document`, {
+    return this.request("POST", `/projects/${enc(projectId)}/document`, {
       document,
       baseVersion: baseVersion ?? null,
     });
   }
 
   listPages(projectId: string): Promise<PageListResponse> {
-    return this.request("GET", `/projects/${projectId}/pages`);
+    return this.request("GET", `/projects/${enc(projectId)}/pages`);
   }
 
   getPage(projectId: string, pageId: string): Promise<PageDetailResponse> {
-    return this.request("GET", `/projects/${projectId}/pages/${pageId}`);
+    return this.request("GET", `/projects/${enc(projectId)}/pages/${enc(pageId)}`);
   }
 
   savePage(
@@ -133,7 +138,7 @@ export class MockupClient {
     document: UiDocument,
     baseVersion?: string,
   ): Promise<PageDetailResponse> {
-    return this.request("POST", `/projects/${projectId}/pages/${pageId}`, {
+    return this.request("POST", `/projects/${enc(projectId)}/pages/${enc(pageId)}`, {
       document,
       baseVersion: baseVersion ?? null,
     });
@@ -143,18 +148,18 @@ export class MockupClient {
 
   listVersions(projectId: string, pageId?: string): Promise<VersionListResponse> {
     const query = pageId ? `?pageId=${encodeURIComponent(pageId)}` : "";
-    return this.request("GET", `/projects/${projectId}/versions${query}`);
+    return this.request("GET", `/projects/${enc(projectId)}/versions${query}`);
   }
 
   restoreVersion(projectId: string, versionId: string): Promise<DocumentResponse> {
     return this.request(
       "POST",
-      `/projects/${projectId}/versions/${versionId}/restore`,
+      `/projects/${enc(projectId)}/versions/${enc(versionId)}/restore`,
     );
   }
 
   listMembers(projectId: string): Promise<ProjectMemberListResponse> {
-    return this.request("GET", `/projects/${projectId}/members`);
+    return this.request("GET", `/projects/${enc(projectId)}/members`);
   }
 
   // -- Internals ------------------------------------------------------------

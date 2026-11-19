@@ -2,20 +2,29 @@ import { createId, type UiNode } from "@ai-mockup-studio/ui-schema";
 
 /**
  * Deep-clone schema subtrees with fresh ids so pasted/duplicated nodes never
- * collide with the originals. Props/styles are copied so the clone is fully
- * independent from later edits to the source node.
+ * collide with the originals. The clone is FULLY independent: nested `props`
+ * objects/arrays, `styles` and per-breakpoint `responsive` overrides are all
+ * copied, so later edits to the source node can never mutate the copy (and
+ * vice versa).
  */
 export function cloneWithNewIds(nodes: UiNode[]): UiNode[] {
-  const clone = (node: UiNode): UiNode => ({
-    ...node,
-    id: createId(node.type.replace(/^[a-z]+\./, "")),
-    // A pasted copy should be editable even if the source layer was hidden or
-    // locked, otherwise the new node appears missing or cannot be modified.
-    hidden: undefined,
-    locked: undefined,
-    props: node.props ? { ...node.props } : undefined,
-    styles: node.styles ? { ...node.styles } : undefined,
-    children: node.children ? node.children.map(clone) : undefined,
+  return nodes.map((node) => {
+    // UiNode is plain JSON data, so a JSON round-trip copies every nested
+    // level — a top-level spread used to share props objects/arrays and
+    // left `responsive` as the same reference entirely. JSON (rather than
+    // structuredClone) also survives Vue reactive proxies, which callers
+    // like the canvas clipboard pass straight out of the Pinia store.
+    const copy = JSON.parse(JSON.stringify(node)) as UiNode;
+    const visit = (n: UiNode): void => {
+      n.id = createId(n.type.replace(/^[a-z]+\./, ""));
+      // A pasted copy should be editable even if the source layer was hidden
+      // or locked, otherwise the new node appears missing or cannot be
+      // modified — at every depth, like before.
+      n.hidden = undefined;
+      n.locked = undefined;
+      n.children?.forEach(visit);
+    };
+    visit(copy);
+    return copy;
   });
-  return nodes.map(clone);
 }

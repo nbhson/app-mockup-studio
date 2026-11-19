@@ -4,6 +4,7 @@ import {
   createShareToken,
   expiryFromDays,
   hashSharePassword,
+  SharePasswordThrottle,
   verifySharePassword,
 } from "./shares.service";
 
@@ -18,23 +19,67 @@ describe("share tokens", () => {
 });
 
 describe("share passwords", () => {
-  it("hashes with a random salt and verifies the right password", () => {
-    const first = hashSharePassword("mat-khau-123");
-    const second = hashSharePassword("mat-khau-123");
+  it("hashes with a random salt and verifies the right password", async () => {
+    const first = await hashSharePassword("mat-khau-123");
+    const second = await hashSharePassword("mat-khau-123");
     expect(first).not.toBe(second);
     expect(first.startsWith("scrypt$")).toBe(true);
     expect(first).not.toContain("mat-khau-123");
-    expect(verifySharePassword("mat-khau-123", first)).toBe(true);
-    expect(verifySharePassword("mat-khau-123", second)).toBe(true);
+    expect(await verifySharePassword("mat-khau-123", first)).toBe(true);
+    expect(await verifySharePassword("mat-khau-123", second)).toBe(true);
   });
 
-  it("rejects wrong passwords and malformed hashes", () => {
-    const stored = hashSharePassword("dung-roi");
-    expect(verifySharePassword("sai-roi", stored)).toBe(false);
-    expect(verifySharePassword("dung-roi", "")).toBe(false);
-    expect(verifySharePassword("dung-roi", "bcrypt$abc$def")).toBe(false);
-    expect(verifySharePassword("dung-roi", "scrypt$$")).toBe(false);
-    expect(verifySharePassword("dung-roi", "scrypt$salt$zzzz")).toBe(false);
+  it("rejects wrong passwords and malformed hashes", async () => {
+    const stored = await hashSharePassword("dung-roi");
+    expect(await verifySharePassword("sai-roi", stored)).toBe(false);
+    expect(await verifySharePassword("dung-roi", "")).toBe(false);
+    expect(await verifySharePassword("dung-roi", "bcrypt$abc$def")).toBe(false);
+    expect(await verifySharePassword("dung-roi", "scrypt$$")).toBe(false);
+    expect(await verifySharePassword("dung-roi", "scrypt$salt$zzzz")).toBe(false);
+  });
+
+  it("is async so it never blocks the event loop with scryptSync", () => {
+    // A decommissioned scryptSync would return the string/boolean directly;
+    // the promisified crypto.scrypt must return a Promise instead.
+    expect(hashSharePassword("x")).toBeInstanceOf(Promise);
+  });
+});
+
+describe("SharePasswordThrottle", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("allows 10 failures then locks the token out with a Retry-After", () => {
+    const throttle = new SharePasswordThrottle();
+    const now = Date.now();
+    for (let index = 0; index < 10; index += 1) {
+      expect(throttle.check("tok", now).allowed).toBe(true);
+      throttle.recordFailure("tok", now);
+    }
+    const blocked = throttle.check("tok", now);
+    expect(blocked.allowed).toBe(false);
+    // 15-minute window minus the elapsed time.
+    expect(blocked.retryAfterSeconds).toBeGreaterThan(14 * 60);
+    expect(blocked.retryAfterSeconds).toBeLessThanOrEqual(15 * 60);
+  });
+
+  it("scopes the budget per token and clears it on success", () => {
+    const throttle = new SharePasswordThrottle();
+    const now = Date.now();
+    for (let index = 0; index < 10; index += 1) throttle.recordFailure("a", now);
+    expect(throttle.check("a", now).allowed).toBe(false);
+    expect(throttle.check("b", now).allowed).toBe(true);
+
+    throttle.reset("a");
+    expect(throttle.check("a", now).allowed).toBe(true);
+  });
+
+  it("ages failures out of the sliding window after 15 minutes", () => {
+    const throttle = new SharePasswordThrottle();
+    const start = Date.now();
+    for (let index = 0; index < 10; index += 1) throttle.recordFailure("tok", start);
+    expect(throttle.check("tok", start).allowed).toBe(false);
+    expect(throttle.check("tok", start + 15 * 60 * 1000 + 1).allowed).toBe(true);
+    expect(throttle.check("tok", start - DAY).allowed).toBe(true);
   });
 });
 
