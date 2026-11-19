@@ -176,14 +176,14 @@ const tooltip = computed(() =>
       </span>
       <span
         v-if="overflow"
-        class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-400 text-[9px] font-semibold text-white ring-2 ring-white"
+        class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-500 text-[9px] font-semibold text-white ring-2 ring-white"
       >
         +{{ overflow }}
       </span>
     </div>
     <span
       class="text-[10px]"
-      :class="connected ? 'text-emerald-600' : 'text-slate-400'"
+      :class="connected ? 'text-success-text' : 'text-ink-muted'"
     >
       {{ presenceLabel(connected, users) }}
     </span>

@@ -223,25 +223,25 @@ function addComponent(type: string) {
 </script>
 
 <template>
-  <aside class="flex h-full w-60 flex-col border-r border-ds-border bg-white">
-    <div class="flex shrink-0 items-center justify-between border-b border-ds-border px-3 py-2">
-      <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Components
-      </span>
+  <aside class="flex h-full w-60 flex-col border-r border-line bg-surface">
+    <div class="flex shrink-0 items-center justify-between border-b border-line px-3 py-2">
+      <span class="panel-title">Components</span>
       <button
-        class="rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50"
+        class="tb-btn tb-btn-accent"
         title="Gợi ý component tiếp theo bằng AI"
         @click="showRecommend = true"
       >
         ✨ Gợi ý
       </button>
     </div>
-    <div class="shrink-0 border-b border-ds-border p-2">
+    <div class="shrink-0 border-b border-line p-2">
+      <label class="sr-only" for="palette-search">Tìm component</label>
       <input
+        id="palette-search"
         v-model="paletteQuery"
         type="search"
         placeholder="Tìm component…"
-        class="w-full rounded border border-ds-border px-2 py-1 text-xs"
+        class="field-input field-input-sm"
       />
     </div>
     <div class="max-h-64 shrink-0 overflow-auto p-2">
@@ -250,7 +250,7 @@ function addComponent(type: string) {
         :key="group.category"
         class="mb-2 last:mb-0"
       >
-        <div class="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <div class="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
           {{ group.label }}
         </div>
         <div class="grid grid-cols-2 gap-1.5">
@@ -258,37 +258,37 @@ function addComponent(type: string) {
             v-for="item in group.items"
             :key="item.type"
             draggable="true"
-            class="cursor-grab rounded border border-ds-border px-2 py-1.5 text-left text-xs hover:border-blue-400 hover:bg-blue-50 active:cursor-grabbing"
+            class="palette-card"
             :title="`Kéo ${item.label} vào canvas (hoặc bấm để thêm)`"
             @dragstart="onPaletteDragStart($event, item.type)"
             @dragend="onDragEnd"
             @click="addComponent(item.type)"
           >
             <ComponentThumb :type="item.type" />
-            <span class="block truncate font-medium text-slate-700">{{ item.label }}</span>
-            <span class="block truncate font-mono text-[10px] text-slate-400">{{ item.type }}</span>
+            <span class="block truncate font-medium text-ink">{{ item.label }}</span>
+            <span class="block truncate font-mono text-[10px] text-ink-muted">{{ item.type }}</span>
           </button>
         </div>
       </div>
-      <p v-if="paletteGroups.length === 0" class="px-1 py-2 text-xs text-slate-400">
+      <p v-if="paletteGroups.length === 0" class="px-1 py-2 text-xs text-ink-muted">
         Không có component phù hợp.
       </p>
     </div>
 
-    <div class="shrink-0 border-y border-ds-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <div class="shrink-0 border-y border-line px-3 py-2 panel-title">
       Layers
     </div>
     <div class="panel-scroll flex-1 overflow-auto p-2">
       <div
         v-for="row in rows"
         :key="row.id"
-        class="group flex w-full items-center gap-0.5 rounded text-sm"
+        class="group flex w-full items-center gap-0.5 rounded text-sm transition-colors duration-150"
         :class="[
           doc.isSelected(row.id)
-            ? 'bg-blue-50 text-blue-700'
-            : 'text-slate-700 hover:bg-slate-50',
+            ? 'bg-primary-soft text-primary-text'
+            : 'text-ink hover:bg-surface-hover',
           row.hidden ? 'opacity-50' : '',
-          row.locked ? 'text-slate-400' : '',
+          row.locked ? 'text-ink-muted' : '',
         ]"
         :style="{ paddingLeft: `${4 + row.depth * 14}px` }"
       >
@@ -296,7 +296,7 @@ function addComponent(type: string) {
           v-if="renamingId === row.id"
           v-model="renameValue"
           data-rename-input
-          class="min-w-0 flex-1 rounded border border-blue-400 px-1.5 py-0.5 text-sm"
+          class="field-input field-input-sm min-w-0 flex-1 text-sm!"
           @click.stop
           @keydown.enter.prevent="commitRename"
           @keydown.esc.prevent="cancelRename"
@@ -316,10 +316,10 @@ function addComponent(type: string) {
           @click.stop="onLayerClick($event, row.id)"
           @dblclick.stop="startRename(row)"
         >
-          <span class="shrink-0 text-[10px] text-slate-400">
+          <span class="shrink-0 text-[10px] text-ink-muted">
             {{ row.isContainer ? "▸" : "•" }}
           </span>
-          <span class="font-mono text-[11px] text-slate-400">{{ row.type }}</span>
+          <span class="font-mono text-[11px] text-ink-muted">{{ row.type }}</span>
           <span class="truncate">{{ row.displayName }}</span>
         </button>
         <div
@@ -332,7 +332,7 @@ function addComponent(type: string) {
           "
         >
           <button
-            class="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
+            class="rounded p-0.5 text-ink-muted hover:bg-white hover:text-ink"
             :title="row.hidden ? 'Hiện layer' : 'Ẩn layer'"
             :aria-label="row.hidden ? 'Hiện layer' : 'Ẩn layer'"
             :aria-pressed="row.hidden"
@@ -353,8 +353,8 @@ function addComponent(type: string) {
             </svg>
           </button>
           <button
-            class="rounded p-0.5 hover:bg-white hover:text-slate-700"
-            :class="row.locked ? 'text-amber-500' : 'text-slate-400'"
+            class="rounded p-0.5 hover:bg-white hover:text-ink"
+            :class="row.locked ? 'text-warning-text' : 'text-ink-muted'"
             :title="row.locked ? 'Mở khóa layer' : 'Khóa layer'"
             :aria-label="row.locked ? 'Mở khóa layer' : 'Khóa layer'"
             :aria-pressed="row.locked"
@@ -380,7 +380,7 @@ function addComponent(type: string) {
             </svg>
           </button>
           <button
-            class="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-white hover:text-slate-700 disabled:opacity-30"
+            class="rounded px-1 py-0.5 text-[10px] text-ink-muted hover:bg-white hover:text-ink disabled:opacity-30"
             :disabled="row.index === 0 || row.locked"
             title="Đưa layer lên"
             @click.stop="moveLayer(row, -1)"
@@ -388,7 +388,7 @@ function addComponent(type: string) {
             ↑
           </button>
           <button
-            class="rounded px-1 py-0.5 text-[10px] text-slate-400 hover:bg-white hover:text-slate-700 disabled:opacity-30"
+            class="rounded px-1 py-0.5 text-[10px] text-ink-muted hover:bg-white hover:text-ink disabled:opacity-30"
             :disabled="row.index >= row.siblingCount - 1 || row.locked"
             title="Đưa layer xuống"
             @click.stop="moveLayer(row, 1)"

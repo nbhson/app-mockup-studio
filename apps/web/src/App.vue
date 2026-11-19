@@ -12,14 +12,14 @@ const isPublicShare = computed(() => route.meta.public === true);
   <div class="h-full w-full flex flex-col">
     <header
       v-if="!isPublicShare"
-      class="h-12 shrink-0 flex items-center justify-between border-b border-ds-border bg-white px-4"
+      class="h-12 shrink-0 flex items-center justify-between border-b border-line bg-surface px-4"
     >
-      <div class="flex items-center gap-2 font-semibold text-slate-900">
-        <span class="grid h-6 w-6 place-items-center rounded-md bg-blue-600 text-xs text-white">AI</span>
+      <RouterLink to="/projects" class="brand" title="Mockup Studio — về danh sách dự án">
+        <span class="brand-mark">AI</span>
         Mockup Studio
-      </div>
-      <nav class="flex items-center gap-1 text-sm text-slate-500">
-        <RouterLink to="/projects" class="rounded px-2 py-1 hover:bg-slate-100">
+      </RouterLink>
+      <nav class="flex items-center gap-1 text-sm" aria-label="Chính">
+        <RouterLink to="/projects" class="nav-link" active-class="nav-link-active">
           Dự án
         </RouterLink>
       </nav>
@@ -30,3 +30,46 @@ const isPublicShare = computed(() => route.meta.public === true);
     </main>
   </div>
 </template>
+
+<style scoped>
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.brand-mark {
+  display: grid;
+  height: 1.5rem;
+  width: 1.5rem;
+  place-items: center;
+  border-radius: 0.375rem;
+  background: var(--color-primary);
+  font-size: 0.75rem;
+  color: #fff;
+  transition: transform var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.brand:active .brand-mark {
+  transform: scale(0.92);
+}
+.nav-link {
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  font-weight: 500;
+  color: var(--color-ink-muted);
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.nav-link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+}
+.nav-link-active,
+.nav-link-active:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-text);
+}
+</style>

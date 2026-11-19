@@ -828,38 +828,36 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex h-full flex-col">
     <div
-      class="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-ds-border bg-white/90 px-2 text-xs"
+      role="toolbar"
+      aria-label="Công cụ dự án"
+      class="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-surface px-2 text-xs"
     >
-      <button
-        class="shrink-0 whitespace-nowrap rounded px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-        title="Quay lại danh sách dự án"
-        @click="router.push('/projects')"
-      >
+      <button class="tb-btn" title="Quay lại danh sách dự án" @click="router.push('/projects')">
         ← Dự án
       </button>
 
-      <div class="mx-auto flex shrink-0 items-center gap-1">
+      <div
+        class="mx-auto flex shrink-0 items-center gap-1 rounded-md bg-surface-muted p-0.5 ring-1 ring-line"
+        role="group"
+        aria-label="Chế độ xem thiết bị"
+      >
         <button
           v-for="device in deviceOptions"
           :key="device.id"
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors"
-          :class="
-            previewDevice === device.id
-              ? 'bg-blue-50 text-blue-700'
-              : 'text-slate-500 hover:bg-slate-100'
-          "
+          class="seg-btn"
+          :class="{ 'seg-active': previewDevice === device.id }"
           :aria-pressed="previewDevice === device.id"
           :title="`Xem trước ${device.label}`"
           @click="doc.setViewportMode(device.id)"
         >
           {{ device.label }}
-          <span class="ml-1 text-[10px] text-slate-400">
+          <span class="ml-1 text-[10px] opacity-70">
             {{ device.width === "document" ? previewWidth : device.width }}px
           </span>
         </button>
         <span
           v-if="previewDevice !== 'desktop'"
-          class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600"
+          class="fade-in ml-1 rounded border border-warning-border bg-warning-soft px-1.5 py-0.5 text-[10px] font-medium text-warning-text"
           title="Chế độ xem trước — không lưu thay đổi viewport"
         >
           preview
@@ -870,13 +868,16 @@ onBeforeUnmount(() => {
         <PresenceBar :project-id="doc.projectId" class="mr-1" />
         <span
           v-if="exportError || duplicateError"
-          class="max-w-40 truncate text-[10px] text-red-500"
+          class="fade-in max-w-40 truncate text-[10px] text-danger-text"
           :title="exportError ?? duplicateError ?? ''"
+          role="alert"
         >
           {{ exportError ?? duplicateError }}
         </span>
+
+        <!-- Collaborate -->
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document || duplicating || doc.isSaving"
           :title="
             doc.isDirty
@@ -888,7 +889,7 @@ onBeforeUnmount(() => {
           {{ duplicating ? "…" : "⧉ Nhân bản trang" }}
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="Tạo link xem trước công khai hoặc có mật khẩu"
           @click="showShare = true"
@@ -896,7 +897,7 @@ onBeforeUnmount(() => {
           🔗 Chia sẻ
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="Bình luận và review theo element hoặc toàn trang"
           @click="showComments = true"
@@ -904,14 +905,26 @@ onBeforeUnmount(() => {
           💬 Bình luận
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
+          :disabled="!doc.projectId"
+          title="Quản lý thành viên và phân quyền dự án"
+          @click="showMembers = true"
+        >
+          👥 Thành viên
+        </button>
+
+        <span class="tb-sep" aria-hidden="true" />
+
+        <!-- Libraries & assets -->
+        <button
+          class="tb-btn"
           title="Quản lý và áp dụng design system cho toàn project"
           @click="showDesignSystems = true"
         >
           🎛️ Design system
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="Thư viện component dùng lại và chia sẻ"
           @click="showComponentLibraries = true"
@@ -919,53 +932,33 @@ onBeforeUnmount(() => {
           🧱 Component library
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
-          :disabled="!doc.projectId"
-          title="Quản lý thành viên và phân quyền dự án"
-          @click="showMembers = true"
-        >
-          👥 Thành viên
-        </button>
-        <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
-          title="Xuất code HTML / React / Vue"
-          @click="showCode = true"
+          title="Thư viện ảnh của dự án"
+          @click="showAssets = true"
         >
-          Code
+          🖼 Ảnh
         </button>
+
+        <span class="tb-sep" aria-hidden="true" />
+
+        <!-- AI creation -->
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
-          :disabled="!doc.document"
-          title="Sinh component + CSS class + design token, chỉnh sửa trước khi tải"
-          @click="showDesignCode = true"
-        >
-          🧩 Design → Code
-        </button>
-        <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
-          :disabled="!doc.document"
-          title="Điền dữ liệu mẫu cho stats, bảng, biểu đồ và nội dung placeholder"
-          @click="showDummyData = true"
-        >
-          🧪 Dữ liệu mẫu
-        </button>
-        <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           title="Dựng mockup từ ảnh chụp màn hình"
           @click="showImageToUi = true"
         >
           🖼 Ảnh → UI
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           title="Dựng mockup từ một trang web công khai"
           @click="showUrlToUi = true"
         >
           🔗 URL → UI
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="Trích bảng màu và theme từ ảnh mẫu"
           @click="showDesignRef = true"
@@ -973,15 +966,19 @@ onBeforeUnmount(() => {
           🎨 Design ref
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
-          title="Đề xuất override tablet/mobile an toàn"
-          @click="showResponsive = true"
+          title="Điền dữ liệu mẫu cho stats, bảng, biểu đồ và nội dung placeholder"
+          @click="showDummyData = true"
         >
-          📐 Responsive
+          🧪 Dữ liệu mẫu
         </button>
+
+        <span class="tb-sep" aria-hidden="true" />
+
+        <!-- AI review -->
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="AI đánh giá thiết kế: hierarchy, spacing, contrast, token"
           @click="showCritique = true"
@@ -989,7 +986,7 @@ onBeforeUnmount(() => {
           ✨ Critique
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="Kiểm tra accessibility theo WCAG AA"
           @click="showA11y = true"
@@ -997,7 +994,7 @@ onBeforeUnmount(() => {
           ♿ Kiểm tra
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
           title="Kiểm tra style lệch design token"
           @click="showConsistency = true"
@@ -1005,17 +1002,37 @@ onBeforeUnmount(() => {
           🎨 Nhất quán
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="!doc.document"
-          title="Thư viện ảnh của dự án"
-          @click="showAssets = true"
+          title="Đề xuất override tablet/mobile an toàn"
+          @click="showResponsive = true"
         >
-          🖼 Ảnh
+          📐 Responsive
+        </button>
+
+        <span class="tb-sep" aria-hidden="true" />
+
+        <!-- Export -->
+        <button
+          class="tb-btn"
+          :disabled="!doc.document"
+          title="Xuất code HTML / React / Vue"
+          @click="showCode = true"
+        >
+          Code
+        </button>
+        <button
+          class="tb-btn"
+          :disabled="!doc.document"
+          title="Sinh component + CSS class + design token, chỉnh sửa trước khi tải"
+          @click="showDesignCode = true"
+        >
+          🧩 Design → Code
         </button>
         <button
           v-for="fmt in imageFormats"
           :key="fmt"
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium uppercase text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn uppercase"
           :disabled="exporting !== null || !doc.document"
           :title="`Xuất ${fmt.toUpperCase()}`"
           @click="exportImage(fmt)"
@@ -1023,7 +1040,7 @@ onBeforeUnmount(() => {
           {{ exporting === fmt ? "…" : fmt }}
         </button>
         <button
-          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="tb-btn"
           :disabled="exporting !== null || !doc.document"
           title="Xuất JSON UI Schema"
           @click="exportJson"
@@ -1035,14 +1052,14 @@ onBeforeUnmount(() => {
 
     <div
       v-if="doc.saveConflict"
-      class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800"
+      class="flex shrink-0 items-center justify-between gap-3 border-b border-warning-border bg-warning-soft px-3 py-1.5 text-[11px] text-warning-text"
       role="alert"
     >
       <span>
         ⚠️ {{ doc.saveError }}
       </span>
       <button
-        class="shrink-0 rounded border border-amber-300 bg-white px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100"
+        class="shrink-0 rounded border border-warning-border bg-surface px-2 py-0.5 font-medium text-warning-text hover:bg-[#fef3c7]"
         @click="doc.reloadLatest()"
       >
         Tải bản mới nhất
@@ -1051,20 +1068,14 @@ onBeforeUnmount(() => {
 
     <div
       v-if="doc.pages.length > 0"
-      class="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-ds-border bg-slate-50/80 px-2 text-xs"
+      class="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-surface-muted/80 px-2 text-xs"
     >
-      <span class="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-        Trang
-      </span>
+      <span class="panel-title shrink-0 text-[10px]!">Trang</span>
       <button
         v-for="page in doc.pages"
         :key="page.id"
-        class="shrink-0 rounded px-2 py-1 font-medium transition-colors disabled:opacity-40"
-        :class="
-          page.id === doc.currentPageId
-            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-200'
-            : 'text-slate-500 hover:bg-white hover:text-slate-700'
-        "
+        class="page-tab"
+        :class="{ 'page-tab-active': page.id === doc.currentPageId }"
         :disabled="pageBusy || doc.pagesLoading"
         :aria-current="page.id === doc.currentPageId ? 'page' : undefined"
         :title="`Mở trang ${page.name} (/${page.slug})`"
@@ -1073,7 +1084,7 @@ onBeforeUnmount(() => {
         {{ page.name }}
       </button>
       <button
-        class="shrink-0 rounded px-1.5 py-1 text-slate-400 hover:bg-white hover:text-slate-600 disabled:opacity-40"
+        class="page-tab-ghost"
         :disabled="pageBusy || doc.pagesLoading"
         title="Thêm trang mới"
         @click="addPage"
@@ -1081,7 +1092,7 @@ onBeforeUnmount(() => {
         ＋
       </button>
       <button
-        class="shrink-0 rounded px-1.5 py-1 text-slate-400 hover:bg-white hover:text-slate-600 disabled:opacity-40"
+        class="page-tab-ghost"
         :disabled="!doc.currentPage || pageBusy || doc.pagesLoading"
         title="Đổi tên trang hiện tại"
         @click="renameCurrentPage"
@@ -1089,25 +1100,26 @@ onBeforeUnmount(() => {
         ✎
       </button>
       <button
-        class="shrink-0 rounded px-1.5 py-1 text-slate-400 hover:bg-white hover:text-red-500 disabled:opacity-40"
+        class="page-tab-ghost page-tab-danger"
         :disabled="doc.pages.length <= 1 || pageBusy || doc.pagesLoading"
         title="Xoá trang hiện tại"
         @click="deleteCurrentPage"
       >
         🗑
       </button>
-      <span v-if="pageBusy || doc.pagesLoading" class="shrink-0 text-[10px] text-slate-400">
+      <span v-if="pageBusy || doc.pagesLoading" class="shrink-0 text-[10px] text-ink-muted">
         Đang lưu…
       </span>
       <span
         v-if="pageError"
-        class="max-w-56 shrink-0 truncate text-[10px] text-red-500"
+        class="max-w-56 shrink-0 truncate text-[10px] text-danger-text"
         :title="pageError"
+        role="alert"
       >
         {{ pageError }}
       </span>
       <button
-        class="ml-auto shrink-0 rounded px-2 py-1 font-medium text-blue-600 hover:bg-white hover:text-blue-700"
+        class="tb-btn tb-btn-accent ml-auto"
         title="AI tạo nhiều trang liên kết từ một prompt"
         @click="showMultiPage = true"
       >
@@ -1117,15 +1129,15 @@ onBeforeUnmount(() => {
 
     <div
       data-canvas
-      class="relative min-h-0 flex-1 overflow-auto bg-slate-200/60"
+      class="relative min-h-0 flex-1 overflow-auto bg-[#eef2f7]"
       @pointerdown="onCanvasPointerDown"
       @click="onCanvasClick"
     >
-      <div v-if="!doc.isLoading && doc.document" class="mx-auto my-8 w-fit">
+      <div v-if="!doc.isLoading && doc.document" class="fade-in mx-auto my-8 w-fit">
         <div
           ref="pageEl"
           data-page
-          class="relative overflow-hidden bg-white shadow-sm"
+          class="relative overflow-hidden bg-white shadow-[0_1px_3px_rgb(15_23_42/0.08),0_10px_28px_rgb(15_23_42/0.07)]"
           :style="{
             width: `${previewWidth}px`,
             minHeight: `${doc.document.viewport.height}px`,
@@ -1156,7 +1168,7 @@ onBeforeUnmount(() => {
           <div
             v-if="marqueeRect"
             data-export-ignore
-            class="pointer-events-none absolute z-20 border border-blue-500 bg-blue-500/10"
+            class="pointer-events-none absolute z-20 border border-primary bg-primary/10"
             :style="{
               left: `${marqueeRect.left}px`,
               top: `${marqueeRect.top}px`,
@@ -1168,7 +1180,7 @@ onBeforeUnmount(() => {
           <div
             v-if="selectionRect"
             data-export-ignore
-            class="pointer-events-none absolute z-10 rounded-sm border-2 border-blue-500 ring-1 ring-blue-300"
+            class="pointer-events-none absolute z-10 rounded-sm border-2 border-primary ring-1 ring-blue-300"
             :style="{
               left: `${selectionRect.left}px`,
               top: `${selectionRect.top}px`,
@@ -1181,7 +1193,7 @@ onBeforeUnmount(() => {
                 v-for="handle in resizeHandles"
                 :key="handle.dir"
                 :data-resize="handle.dir"
-                class="pointer-events-auto absolute h-2 w-2 rounded-sm border border-white bg-blue-500"
+                class="pointer-events-auto absolute h-2 w-2 rounded-sm border border-white bg-primary"
                 :class="handle.className"
                 @pointerdown.stop.prevent="startResize($event, handle.dir)"
               />
@@ -1190,8 +1202,28 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="doc.isLoading" class="mx-auto mt-20 w-fit text-sm text-slate-500">
-        Đang tải…
+      <!-- Loading: page-shaped skeleton instead of bare text -->
+      <div v-else-if="doc.isLoading" class="mx-auto my-8 w-fit">
+        <span class="sr-only" role="status">Đang tải dự án…</span>
+        <div class="skeleton h-96 w-[min(640px,80vw)] rounded-md" aria-hidden="true" />
+      </div>
+
+      <!-- First-run guidance on an empty canvas -->
+      <div v-else class="flex h-full items-center justify-center p-6">
+        <div class="rise-in max-w-sm rounded-lg border border-dashed border-line bg-surface/80 px-6 py-8 text-center">
+          <div
+            class="mx-auto grid h-11 w-11 place-items-center rounded-full bg-primary-soft text-lg"
+            aria-hidden="true"
+          >
+            🎨
+          </div>
+          <p class="mt-3 text-sm font-semibold text-ink">Canvas đang trống</p>
+          <p class="mt-1 text-xs leading-5 text-ink-muted">
+            Mô tả giao diện bạn muốn ở khung <strong class="font-medium text-ink-soft">AI Assistant</strong>
+            bên dưới, hoặc kéo component từ bảng
+            <strong class="font-medium text-ink-soft">Components</strong> bên trái.
+          </p>
+        </div>
       </div>
     </div>
 

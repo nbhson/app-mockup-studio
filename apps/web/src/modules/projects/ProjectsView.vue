@@ -12,6 +12,29 @@ onMounted(() => {
   void projects.list().catch(() => undefined);
 });
 
+/** "vừa xong / N phút / N giờ / N ngày trước" — relative freshness on cards. */
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "vừa xong";
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
+}
+
+/** Initials for the card avatar (max 2 chars, Vietnamese-diacritic safe). */
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0] ?? "")
+    .join("")
+    .toUpperCase();
+}
+
 async function onCreate() {
   if (!form.name.trim()) return;
   try {
@@ -54,70 +77,133 @@ async function onDelete(id: string) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-6 py-10">
-    <h1 class="text-2xl font-bold text-slate-900">Dự án của bạn</h1>
-    <p class="mt-1 text-sm text-slate-500">
+  <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+    <h1 class="text-2xl font-bold text-ink">Dự án của bạn</h1>
+    <p class="mt-1 text-sm text-ink-muted">
       Tạo một dự án để bắt đầu: AI sẽ vẽ mockup từ mô tả của bạn, sau đó bạn
       có thể chỉnh sửa qua hội thoại.
     </p>
 
-    <form class="mt-6 flex flex-col gap-3 rounded-lg border border-ds-border bg-white p-4" @submit.prevent="onCreate">
-      <input
-        v-model="form.name"
-        class="rounded-md border border-ds-border px-3 py-2 text-sm outline-none focus:border-blue-500"
-        placeholder="Tên dự án (vd: CRM Dashboard)"
-        maxlength="120"
-        required
-      />
-      <input
-        v-model="form.description"
-        class="rounded-md border border-ds-border px-3 py-2 text-sm outline-none focus:border-blue-500"
-        placeholder="Mô tả (tùy chọn)"
-        maxlength="2000"
-      />
-      <button
-        class="self-start rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        :disabled="!form.name.trim()"
-      >
-        + Tạo dự án
+    <form
+      class="mt-6 grid gap-3 rounded-lg border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+      @submit.prevent="onCreate"
+    >
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-ink-soft">
+          Tên dự án <span class="text-danger-text" aria-hidden="true">*</span>
+        </span>
+        <input
+          v-model="form.name"
+          class="field-input"
+          placeholder="vd: CRM Dashboard"
+          maxlength="120"
+          required
+        />
+      </label>
+      <label class="block">
+        <span class="mb-1 block text-xs font-medium text-ink-soft">
+          Mô tả <span class="text-ink-muted">(tùy chọn)</span>
+        </span>
+        <input
+          v-model="form.description"
+          class="field-input"
+          placeholder="Mục tiêu, đối tượng, phong cách…"
+          maxlength="2000"
+        />
+      </label>
+      <button class="btn btn-primary sm:mb-px" :disabled="!form.name.trim()">
+        <span aria-hidden="true" class="text-base leading-none">+</span>
+        Tạo dự án
       </button>
       <p
         v-if="projects.error"
-        class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600"
+        class="fade-in rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-sm text-danger-text sm:col-span-3"
         role="alert"
       >
         {{ projects.error }}
       </p>
     </form>
 
-    <div class="mt-6">
-      <p v-if="projects.isLoading" class="text-sm text-slate-400">Đang tải…</p>
-      <p v-else-if="projects.projects.length === 0" class="text-sm text-slate-400">
-        Chưa có dự án nào.
-      </p>
-      <ul v-else class="space-y-2">
-        <li
-          v-for="p in projects.projects"
-          :key="p.id"
-          class="flex items-center justify-between rounded-lg border border-ds-border bg-white px-4 py-3"
+    <section class="mt-6" aria-label="Danh sách dự án" aria-live="polite">
+      <!-- Loading: skeleton cards (shimmer stops under prefers-reduced-motion) -->
+      <div
+        v-if="projects.isLoading"
+        class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        <div
+          v-for="n in 6"
+          :key="n"
+          class="rounded-lg border border-line bg-surface p-4"
         >
-          <button class="text-left" @click="router.push(`/workspace/${p.id}`)">
-            <span class="font-medium text-slate-900">{{ p.name }}</span>
-            <span v-if="p.description" class="block text-xs text-slate-500">{{ p.description }}</span>
+          <div class="flex items-center gap-3">
+            <div class="skeleton h-9 w-9 rounded-md" />
+            <div class="min-w-0 flex-1 space-y-2">
+              <div class="skeleton h-3.5 w-2/3" />
+              <div class="skeleton h-3 w-1/3" />
+            </div>
+          </div>
+          <div class="skeleton mt-4 h-3 w-full" />
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div
+        v-else-if="projects.projects.length === 0"
+        class="fade-in rounded-lg border border-dashed border-line bg-surface-muted px-6 py-12 text-center"
+      >
+        <div
+          class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary-soft text-xl"
+          aria-hidden="true"
+        >
+          📦
+        </div>
+        <p class="mt-3 text-sm font-semibold text-ink">Chưa có dự án nào</p>
+        <p class="mx-auto mt-1 max-w-sm text-sm text-ink-muted">
+          Nhập tên dự án vào form phía trên — AI sẽ dựng mockup đầu tiên cho bạn
+          chỉ với một câu mô tả.
+        </p>
+      </div>
+
+      <!-- Project cards -->
+      <ul v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <li
+          v-for="(p, i) in projects.projects"
+          :key="p.id"
+          class="rise-in card-hover flex flex-col rounded-lg border border-line bg-surface p-4"
+          :style="{ '--i': Math.min(i, 8) }"
+        >
+          <button
+            class="flex min-w-0 flex-1 items-start gap-3 text-left"
+            :title="`Mở dự án ${p.name}`"
+            @click="router.push(`/workspace/${p.id}`)"
+          >
+            <span
+              class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-primary-soft text-xs font-semibold text-primary-text"
+              aria-hidden="true"
+            >
+              {{ initials(p.name) }}
+            </span>
+            <span class="min-w-0">
+              <span class="block truncate font-medium text-ink">{{ p.name }}</span>
+              <span
+                v-if="p.description"
+                class="mt-0.5 line-clamp-2 block text-xs text-ink-muted"
+                >{{ p.description }}</span
+              >
+              <span class="mt-1 block text-[11px] text-ink-muted">
+                Sửa {{ timeAgo(p.updatedAt) }}
+              </span>
+            </span>
           </button>
-          <div class="flex shrink-0 items-center gap-3 text-xs">
-            <button class="text-slate-500 hover:text-slate-800 hover:underline" @click="onRename(p)">
-              Đổi tên
-            </button>
-            <button class="text-slate-500 hover:text-slate-800 hover:underline" @click="onDuplicate(p)">
-              Nhân bản
-            </button>
-            <button class="text-red-500 hover:underline" @click="onDelete(p.id)">
+          <div class="mt-3 flex items-center gap-1 border-t border-line pt-2 text-xs">
+            <button class="tb-btn" @click="onRename(p)">Đổi tên</button>
+            <button class="tb-btn" @click="onDuplicate(p)">Nhân bản</button>
+            <button class="tb-btn tb-btn-danger ml-auto" @click="onDelete(p.id)">
               Xóa
             </button>
           </div>
         </li>
       </ul>
-    </div>
+    </section>
   </div>
 </template>

@@ -76,12 +76,12 @@ watch(
   <div class="flex h-full flex-col">
     <div
       v-if="doc.loadError"
-      class="flex shrink-0 items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-3 py-1.5 text-[11px] text-red-800"
+      class="fade-in flex shrink-0 items-center justify-between gap-3 border-b border-danger-border bg-danger-soft px-3 py-1.5 text-[11px] text-danger-text"
       role="alert"
     >
       <span>⚠️ Không tải được dự án: {{ doc.loadError }}</span>
       <button
-        class="shrink-0 rounded border border-red-300 bg-white px-2 py-0.5 font-medium text-red-700 hover:bg-red-100"
+        class="shrink-0 rounded border border-danger-border bg-white px-2 py-0.5 font-medium text-danger-text hover:bg-danger-soft"
         @click="loadProject(String(route.params.projectId))"
       >
         Thử lại

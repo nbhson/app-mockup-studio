@@ -109,14 +109,14 @@ function useAsset(asset: AssetDto) {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-[1.5px] p-4"
       @click.self="close"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="assets-title"
-        class="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+        class="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
       >
         <div class="flex items-center justify-between border-b border-ds-border px-4 py-3">
           <div>

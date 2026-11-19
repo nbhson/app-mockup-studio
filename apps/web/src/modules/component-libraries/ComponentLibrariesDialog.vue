@@ -238,14 +238,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-[1.5px] p-4"
       @click.self="close"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="component-libraries-title"
-        class="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl"
+        class="flex h-[80vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl"
       >
         <aside class="flex w-72 shrink-0 flex-col border-r border-ds-border bg-slate-50">
           <div class="border-b border-ds-border p-3">

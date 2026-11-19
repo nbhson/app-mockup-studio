@@ -220,39 +220,39 @@ function onMode(e: Event) {
 </script>
 
 <template>
-  <aside class="flex h-full w-64 flex-col border-l border-ds-border bg-white">
-    <div class="shrink-0 border-b border-ds-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+  <aside class="flex h-full w-64 flex-col border-l border-line bg-surface">
+    <div class="panel-title shrink-0 border-b border-line px-3 py-2">
       Properties
     </div>
 
     <div class="panel-scroll min-h-0 flex-1 overflow-auto p-3">
-      <p v-if="!doc.selectedNode" class="text-sm text-slate-400">
+      <p v-if="!doc.selectedNode" class="text-sm text-ink-muted">
         Chọn một component trên canvas để chỉnh thuộc tính.
       </p>
 
       <div v-else>
         <div class="mb-3">
           <div class="flex items-center gap-1.5">
-            <span class="text-sm font-medium text-slate-800">{{ doc.selectedNode.type }}</span>
+            <span class="text-sm font-medium text-ink">{{ doc.selectedNode.type }}</span>
             <span
               v-if="doc.selectedNode.locked"
-              class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600"
+              class="rounded border border-warning-border bg-warning-soft px-1.5 py-0.5 text-[10px] font-medium text-warning-text"
             >
               đã khóa
             </span>
             <span
               v-if="doc.selectedNode.hidden"
-              class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500"
+              class="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] text-ink-soft"
             >
               đang ẩn
             </span>
           </div>
-          <div class="text-xs text-slate-400">id: {{ doc.selectedNode.id }}</div>
+          <div class="text-xs text-ink-muted">id: {{ doc.selectedNode.id }}</div>
         </div>
 
         <div
           v-if="isResponsive"
-          class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-700"
+          class="mb-3 rounded-md border border-warning-border bg-warning-soft px-2 py-1.5 text-[11px] leading-4 text-warning-text"
         >
           Đang chỉnh <strong>{{ modeLabel }}</strong>: thay đổi được lưu thành
           override breakpoint, desktop giữ nguyên.
@@ -260,7 +260,7 @@ function onMode(e: Event) {
 
         <div class="space-y-3 text-sm">
           <label class="block">
-            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-ink-soft">
               <span>Width (px)</span>
               <button
                 v-if="isResponsive"
@@ -268,8 +268,8 @@ function onMode(e: Event) {
                 class="rounded px-1 text-[10px] disabled:cursor-default"
                 :class="
                   hasOverride('width')
-                    ? 'text-amber-600 hover:bg-amber-50'
-                    : 'text-slate-300'
+                    ? 'text-warning-text hover:bg-warning-soft'
+                    : 'text-ink-muted'
                 "
                 :disabled="!hasOverride('width')"
                 :title="
@@ -285,14 +285,14 @@ function onMode(e: Event) {
             <input
               :value="width ?? ''"
               type="number"
-              class="w-full rounded-md border border-ds-border px-2 py-1.5"
+              class="field-input"
               placeholder="auto"
               @change="onWidth"
             />
           </label>
 
           <label class="block">
-            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-ink-soft">
               <span>Height (px)</span>
               <button
                 v-if="isResponsive"
@@ -300,8 +300,8 @@ function onMode(e: Event) {
                 class="rounded px-1 text-[10px] disabled:cursor-default"
                 :class="
                   hasOverride('height')
-                    ? 'text-amber-600 hover:bg-amber-50'
-                    : 'text-slate-300'
+                    ? 'text-warning-text hover:bg-warning-soft'
+                    : 'text-ink-muted'
                 "
                 :disabled="!hasOverride('height')"
                 :title="
@@ -317,14 +317,14 @@ function onMode(e: Event) {
             <input
               :value="height ?? ''"
               type="number"
-              class="w-full rounded-md border border-ds-border px-2 py-1.5"
+              class="field-input"
               placeholder="auto"
               @change="onHeight"
             />
           </label>
 
           <label class="block">
-            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-ink-soft">
               <span>Padding (px)</span>
               <button
                 v-if="isResponsive"
@@ -332,8 +332,8 @@ function onMode(e: Event) {
                 class="rounded px-1 text-[10px] disabled:cursor-default"
                 :class="
                   hasOverride('padding')
-                    ? 'text-amber-600 hover:bg-amber-50'
-                    : 'text-slate-300'
+                    ? 'text-warning-text hover:bg-warning-soft'
+                    : 'text-ink-muted'
                 "
                 :disabled="!hasOverride('padding')"
                 :title="
@@ -349,14 +349,14 @@ function onMode(e: Event) {
             <input
               :value="padding ?? ''"
               type="number"
-              class="w-full rounded-md border border-ds-border px-2 py-1.5"
+              class="field-input"
               placeholder="auto"
               @change="onPadding"
             />
           </label>
 
           <div v-if="color">
-            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-slate-500">
+            <span class="mb-1 flex items-center justify-between gap-2 text-xs text-ink-soft">
               <span>Color</span>
               <button
                 v-if="isResponsive"
@@ -364,8 +364,8 @@ function onMode(e: Event) {
                 class="rounded px-1 text-[10px] disabled:cursor-default"
                 :class="
                   hasOverride('color')
-                    ? 'text-amber-600 hover:bg-amber-50'
-                    : 'text-slate-300'
+                    ? 'text-warning-text hover:bg-warning-soft'
+                    : 'text-ink-muted'
                 "
                 :disabled="!hasOverride('color')"
                 :title="
@@ -381,26 +381,24 @@ function onMode(e: Event) {
             <input
               :value="color"
               type="color"
-              class="h-8 w-full rounded-md border border-ds-border"
+              class="h-8 w-full rounded-md border border-line"
               @change="onColor"
             />
           </div>
         </div>
       </div>
 
-      <div v-if="theme" class="mt-4 border-t border-ds-border pt-3">
+      <div v-if="theme" class="mt-4 border-t border-line pt-3">
         <div class="mb-2 flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Design tokens
-          </span>
-          <span class="text-[10px] text-slate-400">áp dụng toàn cục</span>
+          <span class="panel-title">Design tokens</span>
+          <span class="text-[10px] text-ink-muted">áp dụng toàn cục</span>
         </div>
 
         <label class="mb-2 block">
-          <span class="mb-1 block text-xs text-slate-500">Theme</span>
+          <span class="mb-1 block text-xs text-ink-soft">Theme</span>
           <select
             :value="theme.mode"
-            class="w-full rounded-md border border-ds-border px-2 py-1.5 text-sm"
+            class="field-input"
             @change="onMode"
           >
             <option value="light">Sáng</option>
@@ -415,19 +413,19 @@ function onMode(e: Event) {
             class="block"
             :title="`${token.label}: ${theme[token.key]}`"
           >
-            <span class="mb-1 block text-[10px] text-slate-500">{{ token.label }}</span>
+            <span class="mb-1 block text-[10px] text-ink-soft">{{ token.label }}</span>
             <span class="flex items-center gap-1">
               <input
                 :value="theme[token.key]"
                 type="color"
-                class="h-6 w-6 shrink-0 cursor-pointer rounded border border-ds-border bg-white p-0"
+                class="h-6 w-6 shrink-0 cursor-pointer rounded border border-line bg-white p-0"
                 @change="onThemeColor(token.key, $event)"
               />
               <input
                 :value="theme[token.key]"
                 type="text"
                 spellcheck="false"
-                class="min-w-0 flex-1 rounded border border-ds-border px-1 py-0.5 font-mono text-[10px]"
+                class="field-input field-input-sm min-w-0 flex-1 font-mono"
                 @change="onThemeColor(token.key, $event)"
               />
             </span>
@@ -436,21 +434,21 @@ function onMode(e: Event) {
 
         <div class="grid grid-cols-2 gap-2">
           <label class="block">
-            <span class="mb-1 block text-xs text-slate-500">Radius (px)</span>
+            <span class="mb-1 block text-xs text-ink-soft">Radius (px)</span>
             <input
               :value="theme.radius"
               type="number"
               min="0"
-              class="w-full rounded-md border border-ds-border px-2 py-1.5 text-sm"
+              class="field-input"
               @change="onRadius"
             />
           </label>
           <label class="block">
-            <span class="mb-1 block text-xs text-slate-500">Font</span>
+            <span class="mb-1 block text-xs text-ink-soft">Font</span>
             <input
               :value="theme.fontFamily"
               type="text"
-              class="w-full rounded-md border border-ds-border px-2 py-1.5 text-xs"
+              class="field-input field-input-sm text-xs"
               @change="onFontFamily"
             />
           </label>
