@@ -14,6 +14,65 @@ export function buildComponentGuide(types: string[]): string {
   return types.length > 0 ? types.join(", ") : "(no components available)";
 }
 
+/**
+ * The exact `UiDocument` contract, shared by every feature that asks the model
+ * to produce a whole document (generate, multi-page, image-to-ui, url-to-ui).
+ *
+ * This used to live only inside `buildGenerationSystemPrompt`, so the other
+ * three features described the shape in prose ("a document with theme and
+ * root"). Models answered with invented shapes — `{ theme: { colors }, nodes }`
+ * instead of `{ theme: { primary, ... }, root: { id, type, children } }` —
+ * which failed validation on every attempt and always ended in the offline
+ * fallback mockup. One contract, four callers, no drift.
+ */
+export function buildUiDocumentContract(viewport: {
+  width: number;
+  height: number;
+}): string {
+  return [
+    `UiDocument CONTRACT — every field below is REQUIRED, with these exact names:`,
+    `{`,
+    `  "schemaVersion": "${SCHEMA_VERSION}",`,
+    `  "id": "<doc id, e.g. doc-1>",`,
+    `  "pageId": "<page id, e.g. page-1>",`,
+    `  "name": "<page name>",`,
+    `  "viewport": { "width": ${viewport.width}, "height": ${viewport.height} },`,
+    `  "theme": { "mode":"light", "primary":"#2563EB", "primaryForeground":"#ffffff",`,
+    `             "background":"#ffffff", "foreground":"#0F172A", "muted":"#F1F5F9",`,
+    `             "mutedForeground":"#64748B", "border":"#E2E8F0", "fontFamily":"Inter, sans-serif",`,
+    `             "radius": 8 },`,
+    `  "root": { "id": "root", "type": "layout.container", "props": {}, "children": [ ...nodes... ] }`,
+    `}`,
+    ``,
+    `UiNode: { "id": string (required, unique), "type": string (required), "name"?: string,`,
+    `  "props"?: object, "styles"?: object, "children"?: UiNode[] }`,
+    `"styles" keys: width, height, minWidth, minHeight, padding, margin, gap, display,`,
+    `  gridTemplateColumns, flex, flexDirection, flexWrap, flexShrink, alignItems,`,
+    `  justifyContent, backgroundColor, color, fontFamily, fontSize, fontWeight,`,
+    `  borderWidth, borderColor, borderRadius, opacity.`,
+    ``,
+    `HARD REQUIREMENTS:`,
+    `- "root" is the document tree. Never use "nodes", "children" at document level or a flat list.`,
+    `- "theme" is flat: mode/primary/primaryForeground/background/foreground/muted/`,
+    `  mutedForeground/border/fontFamily/radius. Never nest colors under "theme.colors".`,
+    `- "theme.radius" is a number (e.g. 8), not "8px". Sizes may be numbers or strings.`,
+    `- Do not omit schemaVersion, id or pageId — validation rejects documents without them.`,
+  ].join("\n");
+}
+
+/**
+ * Output-budget rules. Pretty-printed JSON costs ~2.5× more tokens than the
+ * same document minified, and a truncated answer is an instant retry-worthy
+ * parse failure, so the prompt buys back most of the budget.
+ */
+export const COMPACT_OUTPUT_RULES = [
+  `OUTPUT BUDGET:`,
+  `- Write MINIFIED JSON: no indentation, no newlines, no space after ":" or ",".`,
+  `- Keep each page focused: 15–35 nodes total. Depth over breadth — a few strong`,
+  `  sections beat a wall of repetitive cards.`,
+  `- Never truncate the JSON and never close the answer with prose.`,
+].join("\n");
+
 export interface GenerationSystemContext {
   availableTypes: string[];
   viewport: { width: number; height: number };
@@ -23,7 +82,7 @@ export interface GenerationSystemContext {
 export function buildGenerationSystemPrompt(ctx: GenerationSystemContext): string {
   return [
     `You are the UI generation engine of AI Mockup Studio (schema v${SCHEMA_VERSION}).`,
-    `Your only job is to produce a COMPLETE, VALID JSON "UiDocument" that matches the schema below.`,
+    `Your only job is to produce a COMPLETE, VALID JSON "UiDocument" that matches the contract below.`,
     ``,
     `RULES:`,
     `- Respond with pure JSON only. No markdown fences, no commentary.`,
@@ -35,29 +94,9 @@ export function buildGenerationSystemPrompt(ctx: GenerationSystemContext): strin
     `- Do NOT invent component types; if a type is missing, choose the closest known one.`,
     `- Do NOT generate raw HTML or CSS anywhere in the output.`,
     ``,
-    `SCHEMA (UiDocument):`,
-    `{`,
-    `  "schemaVersion": "${SCHEMA_VERSION}",`,
-    `  "id": "<document id>",`,
-    `  "pageId": "<page id>",`,
-    `  "name": "<page name>",`,
-    `  "viewport": { "width": ${ctx.viewport.width}, "height": ${ctx.viewport.height} },`,
-    `  "theme": { "mode":"light", "primary":"#2563EB", "primaryForeground":"#ffffff",`,
-    `             "background":"#ffffff", "foreground":"#0F172A", "muted":"#F1F5F9",`,
-    `             "mutedForeground":"#64748B", "border":"#E2E8F0", "fontFamily":"Inter, sans-serif",`,
-    `             "radius": 8 },`,
-    `  "root": {`,
-    `    "id": "root",`,
-    `    "type": "layout.container",`,
-    `    "props": {},`,
-    `    "children": [ ... nested nodes of sizes above ... ]`,
-    `  }`,
-    `}`,
+    COMPACT_OUTPUT_RULES,
     ``,
-    `NODE SHAPE: { "id": string, "type": string, "name"?: string,`,
-    `  "props"?: Record<string,unknown>, "styles"?: {width?,height?,padding?,display?,flexDirection?,`,
-    `  alignItems?,justifyContent?,backgroundColor?,color?,fontSize?,fontWeight?,gap?,borderRadius?},`,
-    `  "children"?: UiNode[] }`,
+    buildUiDocumentContract(ctx.viewport),
   ].join("\n");
 }
 
@@ -352,9 +391,13 @@ export function buildImageToUiSystemPrompt(ctx: ImageToUiPromptContext): string 
     `- Every node needs a unique id, a known type and sensible props/styles.`,
     ``,
     `AVAILABLE TYPES (JSON):`,
-    JSON.stringify(ctx.availableTypes, null, 2),
+    JSON.stringify(ctx.availableTypes),
     ``,
-    `RESPONSE SHAPE: a complete UiDocument JSON object with schemaVersion, id, pageId, name, viewport, theme and root.`,
+    COMPACT_OUTPUT_RULES,
+    ``,
+    `RESPONSE SHAPE: a single complete UiDocument.`,
+    ``,
+    buildUiDocumentContract({ width: ctx.width, height: ctx.height }),
   ].join("\n");
 }
 
@@ -371,9 +414,12 @@ export function buildImageToUiUserPrompt(prompt?: string): string {
 export interface UrlToUiPromptContext {
   availableTypes: string[];
   url: string;
+  /** The service normalizes every imported page to this canvas size. */
+  viewport?: { width: number; height: number };
 }
 
 export function buildUrlToUiSystemPrompt(ctx: UrlToUiPromptContext): string {
+  const viewport = ctx.viewport ?? { width: 1440, height: 900 };
   return [
     `You are a UI reconstruction expert for AI Mockup Studio.`,
     `You receive a structured snapshot of a public web page (title, headings, paragraphs, links, images and buttons) extracted from ${ctx.url}.`,
@@ -388,9 +434,13 @@ export function buildUrlToUiSystemPrompt(ctx: UrlToUiPromptContext): string {
     `- Every node needs a unique id, a known type and sensible props/styles.`,
     ``,
     `AVAILABLE TYPES (JSON):`,
-    JSON.stringify(ctx.availableTypes, null, 2),
+    JSON.stringify(ctx.availableTypes),
     ``,
-    `RESPONSE SHAPE: a complete UiDocument JSON object with schemaVersion, id, pageId, name, viewport, theme and root.`,
+    COMPACT_OUTPUT_RULES,
+    ``,
+    `RESPONSE SHAPE: a single complete UiDocument.`,
+    ``,
+    buildUiDocumentContract(viewport),
   ].join("\n");
 }
 
@@ -457,15 +507,21 @@ export function buildMultiPageSystemPrompt(ctx: MultiPagePromptContext): string 
     `- Only use component types from the AVAILABLE TYPES list.`,
     `- Every node needs a unique id, a known type and sensible props/styles.`,
     `- The document viewport is ${ctx.viewport.width}×${ctx.viewport.height}.`,
+    `- "document" must be a FULL UiDocument (see contract) — not a list of nodes.`,
     ``,
     `AVAILABLE TYPES (JSON):`,
-    JSON.stringify(ctx.availableTypes, null, 2),
+    JSON.stringify(ctx.availableTypes),
     ``,
-    `RESPONSE SHAPE:`,
+    COMPACT_OUTPUT_RULES,
+    ``,
+    buildUiDocumentContract(ctx.viewport),
+    ``,
+    `RESPONSE SHAPE (top level):`,
     `{`,
     `  "summary": "<1–2 Vietnamese sentences>",`,
-    `  "pages": [{ "name": "Trang chủ", "slug": "home", "document": <UiDocument> }]`,
+    `  "pages": [{ "name": "Trang chủ", "slug": "home", "document": <UiDocument above> }]`,
     `}`,
+    `The "pages" array must contain exactly ${ctx.pageCount} entries.`,
   ].join("\n");
 }
 

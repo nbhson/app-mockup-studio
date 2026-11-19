@@ -6,6 +6,29 @@ import type { UiNode } from "@ai-mockup-studio/ui-schema";
 // (plan/08: `validators` package is used by BOTH web and api.)
 // ---------------------------------------------------------------------------
 
+/**
+ * Length/scale properties that the renderer treats as numbers (px or unitless).
+ *
+ * Models — and hand-edited JSON — write CSS as a string: `"borderRadius":
+ * "24px"`, `"opacity": "0.9"`. That used to fail validation with dozens of
+ * "expected number, received string" issues, which burned every AI retry and
+ * landed the user on the offline mockup. Strip the unit and coerce instead of
+ * rejecting an otherwise correct document; anything that is not a number
+ * ("large", "1rem") still fails, so real mistakes are not hidden.
+ */
+const cssNumberSchema = z.union([z.number(), z.string()]).transform((value, ctx) => {
+  if (typeof value === "number") {
+    if (Number.isFinite(value)) return value;
+  } else {
+    const match = /^\s*(-?\d+(?:\.\d+)?)(?:px|%)?\s*$/.exec(value);
+    if (match) return Number(match[1]);
+  }
+  ctx.addIssue({
+    code: "custom",
+    message: `Cần một số (12 hoặc "12px"), nhận được: ${JSON.stringify(value)}`,
+  });
+});
+
 const uiStylesSchema = z
   .object({
     width: z.union([z.number(), z.string()]).optional(),
@@ -20,7 +43,7 @@ const uiStylesSchema = z
     flex: z.union([z.number(), z.string()]).optional(),
     flexDirection: z.enum(["row", "column"]).optional(),
     flexWrap: z.enum(["nowrap", "wrap", "wrap-reverse"]).optional(),
-    flexShrink: z.number().optional(),
+    flexShrink: cssNumberSchema.optional(),
     alignItems: z.string().optional(),
     justifyContent: z.string().optional(),
     backgroundColor: z.string().optional(),
@@ -28,10 +51,10 @@ const uiStylesSchema = z
     fontFamily: z.string().optional(),
     fontSize: z.union([z.number(), z.string()]).optional(),
     fontWeight: z.union([z.number(), z.string()]).optional(),
-    borderWidth: z.number().optional(),
+    borderWidth: cssNumberSchema.optional(),
     borderColor: z.string().optional(),
-    borderRadius: z.number().optional(),
-    opacity: z.number().optional(),
+    borderRadius: cssNumberSchema.optional(),
+    opacity: cssNumberSchema.optional(),
   })
   .passthrough();
 

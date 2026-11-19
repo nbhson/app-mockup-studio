@@ -51,12 +51,29 @@ export interface AiChatOptions {
   /** Optional image inputs (data URLs) for vision-capable models. */
   images?: string[];
   signal?: AbortSignal;
+  /**
+   * Per-call wall-clock ceiling in ms. The AI pipeline shrinks retries to
+   * whatever is left of its budget, so one slow answer can never make the
+   * browser wait past what it already waited for.
+   */
+  timeoutMs?: number;
+  /**
+   * Reasoning budget for thinking models (qwen3, o-series, deepseek-r1):
+   * a full mockup JSON takes ~40 s without thinking and ~135 s with it.
+   */
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
 }
 
 export interface AiChatResult {
   text: string;
   model: string;
   usage?: { promptTokens?: number; completionTokens?: number };
+  /**
+   * Why the model stopped, normalized to the OpenAI vocabulary. `"length"`
+   * means the answer hit `max_tokens` and the JSON is cut off mid-object —
+   * without this the orchestrator only sees an opaque `JSON.parse` failure.
+   */
+  finishReason?: "stop" | "length" | "content_filter" | "tool_calls" | string;
 }
 
 /**

@@ -34,6 +34,15 @@ function docWith(root: UiNode) {
   };
 }
 
+/**
+ * Untyped JSON, i.e. what comes straight off the wire (or out of a model)
+ * before zod normalises it. `UiNode` itself forbids things like
+ * `borderRadius: "12px"`, so tolerant-input tests need this looser shape.
+ */
+function rawDocWith(root: Record<string, unknown>) {
+  return { ...docWith({ id: "seed", type: "layout.container" }), root };
+}
+
 describe("updatePatchSchema.changes keys", () => {
   it("accepts the editor's own key shapes", () => {
     for (const key of [
@@ -144,6 +153,42 @@ describe("uiDocumentSchema", () => {
     const long = docWith({ id: "r", type: "basic.text" });
     long.name = "x".repeat(500);
     expect(uiDocumentSchema.safeParse(long).success).toBe(false);
+  });
+
+  it("coerces the quoted CSS numbers a model writes", () => {
+    // Real LLM answers style like CSS: `"borderRadius": "24px"`,
+    // `"opacity": "0.9"`. Those are the same value the renderer uses, so the
+    // schema normalises them instead of rejecting the whole document — which
+    // used to burn all three AI retries and show the offline fallback.
+    const res = uiDocumentSchema.safeParse(
+      rawDocWith({
+        id: "root",
+        type: "layout.container",
+        styles: { borderRadius: "24px", opacity: "0.9", flexShrink: "0", gap: "16" },
+      }),
+    );
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.root.styles).toMatchObject({
+        borderRadius: 24,
+        opacity: 0.9,
+        flexShrink: 0,
+        gap: "16",
+      });
+    }
+  });
+
+  it("still rejects sizes that are not numbers at all", () => {
+    expect(
+      uiDocumentSchema.safeParse(
+        rawDocWith({ id: "root", type: "layout.container", styles: { borderRadius: "large" } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      uiDocumentSchema.safeParse(
+        rawDocWith({ id: "root", type: "layout.container", styles: { opacity: Number.NaN } }),
+      ).success,
+    ).toBe(false);
   });
 });
 
