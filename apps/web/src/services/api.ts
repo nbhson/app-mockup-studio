@@ -11,15 +11,26 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    ...init,
-    // Merge, don't clobber: a caller passing custom headers (e.g.
-    // x-share-password) used to drop the default JSON content-type.
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      ...init,
+      // Merge, don't clobber: a caller passing custom headers (e.g.
+      // x-share-password) used to drop the default JSON content-type.
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers as Record<string, string> | undefined),
+      },
+    });
+  } catch {
+    // No response at all: the API is down/restarting or the network dropped.
+    // `TypeError: Failed to fetch` is useless in the UI, and every store
+    // forwards `e.message`, so translate it here, once.
+    throw new ApiError(
+      0,
+      "Không kết nối được server API. Kiểm tra API đang chạy (pnpm dev:api) rồi thử lại.",
+    );
+  }
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
     try {
