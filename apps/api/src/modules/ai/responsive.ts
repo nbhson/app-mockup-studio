@@ -44,6 +44,7 @@ export const RESPONSIVE_STYLE_KEYS = new Set([
   "margin",
   "gap",
   "display",
+  "gridTemplateColumns",
   "flex",
   "flexDirection",
   "flexWrap",
@@ -169,6 +170,21 @@ function analyzeNode(
       detail: `${label} đang xếp ngang; trên mobile nên chuyển thành cột để tránh tràn.`,
       styles: { flexDirection: "column" },
     });
+  }
+
+  // --- Grid columns beyond what the breakpoint can show -------------------
+  if (node.type === "layout.grid") {
+    const cols = Number(node.props?.columns) || 1;
+    const maxCols = breakpoint === "mobile" ? 1 : 2;
+    if (cols > maxCols) {
+      hits.push({
+        title: "Grid quá nhiều cột",
+        detail: `${label} có ${cols} cột; ở ${breakpoint} nên giảm còn ${maxCols} để thẻ không bị ép quá hẹp.`,
+        styles: {
+          gridTemplateColumns: `repeat(${maxCols}, minmax(0, 1fr))`,
+        },
+      });
+    }
   }
 
   // --- Oversized spacing / typography on mobile ---------------------------

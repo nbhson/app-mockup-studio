@@ -43,6 +43,8 @@ export interface UiStyles {
   margin?: number | string;
   gap?: number | string;
   display?: string;
+  /** Explicit CSS grid columns (used by `layout.grid` responsive overrides). */
+  gridTemplateColumns?: string;
   flex?: number | string;
   flexDirection?: "row" | "column";
   flexWrap?: "nowrap" | "wrap" | "wrap-reverse";

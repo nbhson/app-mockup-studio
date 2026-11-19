@@ -8,12 +8,12 @@ import { MetricsService } from "./metrics.service";
 // for log correlation, and warnings for server errors / slow requests.
 // ---------------------------------------------------------------------------
 
-const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-
 export function normalizeRoute(req: Request): string {
   const routePath = (req.route as { path?: string } | undefined)?.path;
   if (routePath) return routePath;
-  return req.path.replace(UUID_RE, ":id").replace(/\/\d+/g, "/:id");
+  // Unmatched paths are attacker-controlled; bucket them under one constant
+  // so probing random URLs cannot grow the metrics route map.
+  return ":unmatched";
 }
 
 @Injectable()

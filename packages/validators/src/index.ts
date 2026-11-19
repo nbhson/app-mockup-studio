@@ -16,6 +16,7 @@ const uiStylesSchema = z
     margin: z.union([z.number(), z.string()]).optional(),
     gap: z.union([z.number(), z.string()]).optional(),
     display: z.string().optional(),
+    gridTemplateColumns: z.string().optional(),
     flex: z.union([z.number(), z.string()]).optional(),
     flexDirection: z.enum(["row", "column"]).optional(),
     flexWrap: z.enum(["nowrap", "wrap", "wrap-reverse"]).optional(),

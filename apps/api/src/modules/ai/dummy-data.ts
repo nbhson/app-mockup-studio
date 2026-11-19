@@ -275,21 +275,39 @@ export function sanitizeDummyProps(
     if (value !== undefined) clean[key] = value;
   }
 
-  // Keep parallel arrays consistent.
-  if (Array.isArray(clean.items) && Array.isArray(clean.values)) {
-    const length = Math.min(clean.items.length, clean.values.length);
-    clean.items = clean.items.slice(0, length);
-    clean.values = clean.values.slice(0, length);
+  // Stats cards render label+value pairs: a lone half is unusable, so only
+  // keep the pair when both arrays are present, trimmed to the shorter one.
+  if (nodeType === "dashboard.stats") {
+    if (Array.isArray(clean.items) && Array.isArray(clean.values)) {
+      const length = Math.min(clean.items.length, clean.values.length);
+      clean.items = clean.items.slice(0, length);
+      clean.values = clean.values.slice(0, length);
+    } else {
+      delete clean.items;
+      delete clean.values;
+    }
   }
 
-  // Every table row must match the header count.
-  if (Array.isArray(clean.headers) && Array.isArray(clean.rows)) {
-    const columns = clean.headers.length;
-    const rows = (clean.rows as unknown[][]).filter(
-      (row) => Array.isArray(row) && row.length === columns,
-    );
-    if (rows.length === 0) delete clean.rows;
-    else clean.rows = rows;
+  // Tables must render a rectangular grid: rows align with the header count
+  // when present, or with the narrowest row when the model skipped headers.
+  if (Array.isArray(clean.rows)) {
+    const rows = (clean.rows as unknown[][]).filter((row) => Array.isArray(row));
+    const columns = Array.isArray(clean.headers)
+      ? clean.headers.length
+      : Math.min(...rows.map((row) => row.length));
+    const aligned = rows.filter((row) => row.length === columns);
+    if (aligned.length === 0) {
+      delete clean.rows;
+      if (!Array.isArray(clean.headers)) delete clean.headers;
+    } else {
+      clean.rows = aligned;
+    }
+  }
+
+  // A chart without a title is noise — dropping `kind` too lets the caller
+  // skip the change entirely instead of applying a nameless chart.
+  if (nodeType === "dashboard.chart" && typeof clean.title !== "string") {
+    delete clean.kind;
   }
 
   return Object.keys(clean).length > 0 ? clean : null;

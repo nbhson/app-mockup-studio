@@ -28,6 +28,7 @@ export const useAiStore = defineStore("ai", () => {
   async function generate(
     prompt: string,
     onGenerated?: (doc: UiDocument) => void,
+    viewportMode?: "desktop" | "tablet" | "mobile",
   ) {
     if (!prompt.trim() || isGenerating.value) return;
     isGenerating.value = true;
@@ -36,7 +37,13 @@ export const useAiStore = defineStore("ai", () => {
     messages.value.push({ role: "user", content: prompt });
     try {
       statusText.value = "Đang tạo giao diện…";
-      const result = await api.post<GenerateResult>("/ai/generate", { prompt });
+      // Generate for the viewport the user is currently previewing — the
+      // body field is the documented contract (previously ignored, so every
+      // generation came back desktop-sized even in mobile/tablet preview).
+      const result = await api.post<GenerateResult>("/ai/generate", {
+        prompt,
+        ...(viewportMode ? { viewportMode } : {}),
+      });
       messages.value.push({ role: "assistant", content: result.summary });
       onGenerated?.(result.document);
       statusText.value = "Hoàn tất.";

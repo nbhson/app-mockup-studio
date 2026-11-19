@@ -105,24 +105,29 @@ export class PagesController {
     const position = existing.reduce((max, row) => Math.max(max, row.position), -1) + 1;
     const document = parsed.document ?? blankDocument(parsed.name);
 
-    const [doc] = await this.db.client
-      .insert(documents)
-      .values({
-        projectId,
-        schemaVersion: document.schemaVersion,
-        schema: document as unknown as object,
-      })
-      .returning();
-    const [page] = await this.db.client
-      .insert(pages)
-      .values({
-        projectId,
-        name: parsed.name,
-        slug,
-        position,
-        documentId: doc.id,
-      })
-      .returning();
+    // Insert both rows in one transaction so a failure can never leave an
+    // orphan document without a page (see ensureHomePage determinism).
+    const [doc, page] = await this.db.client.transaction(async (tx) => {
+      const [newDoc] = await tx
+        .insert(documents)
+        .values({
+          projectId,
+          schemaVersion: document.schemaVersion,
+          schema: document as unknown as object,
+        })
+        .returning();
+      const [newPage] = await tx
+        .insert(pages)
+        .values({
+          projectId,
+          name: parsed.name,
+          slug,
+          position,
+          documentId: newDoc.id,
+        })
+        .returning();
+      return [newDoc, newPage] as const;
+    });
 
     return {
       projectId,
@@ -267,6 +272,7 @@ export class PagesController {
     if (shouldSnapshot) {
       await this.db.client.insert(versions).values({
         documentId: existing.id,
+        projectId: existing.projectId,
         snapshot: existing.schema as object,
         note: "Autosave",
       });
@@ -348,6 +354,10 @@ export class PagesController {
       .from(documents)
       .where(eq(documents.id, page.documentId))
       .limit(1);
+    if (!doc) {
+      // Dangling pages.documentId — same guard as detail()/save().
+      throw new NotFoundException(`Trang ${page.id} không có document`);
+    }
 
     return {
       projectId,

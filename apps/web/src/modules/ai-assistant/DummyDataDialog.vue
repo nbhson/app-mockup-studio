@@ -57,6 +57,10 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
+      // Clear the previous run first (see DesignCritiqueDialog): a reopen
+      // with no document must not show the old changes with dead Apply
+      // buttons.
+      result.value = null;
       applied.value = [];
       window.addEventListener("keydown", onKeydown);
       void run();

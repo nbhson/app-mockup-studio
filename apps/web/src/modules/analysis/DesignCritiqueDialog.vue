@@ -44,6 +44,10 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
+      // Clear the previous run first: `run()` returns early when there is no
+      // document, and the stale findings of the last session would otherwise
+      // render with Apply buttons that silently no-op.
+      result.value = null;
       appliedMessage.value = null;
       window.addEventListener("keydown", onKeydown);
       void run();

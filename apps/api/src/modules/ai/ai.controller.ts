@@ -42,10 +42,14 @@ export class AiController {
     @Body() body: GenerateRequestBody,
     @Query("viewport") viewportMode?: string,
   ): Promise<GenerateResult> {
-    if (viewportMode && !["desktop", "tablet", "mobile"].includes(viewportMode)) {
+    // The documented contract is the body field `viewportMode`; the query
+    // param is kept as a legacy fallback. Previously the body field was
+    // declared but ignored, so generation always produced a desktop doc.
+    const mode = (body as { viewportMode?: string }).viewportMode ?? viewportMode;
+    if (mode && !["desktop", "tablet", "mobile"].includes(mode)) {
       throw new BadRequestException("Invalid viewport mode");
     }
-    return this.ai.generate(body, viewportMode);
+    return this.ai.generate(body, mode);
   }
 
   /** Conversational editing: prompt + current doc → patches applied to a copy. */

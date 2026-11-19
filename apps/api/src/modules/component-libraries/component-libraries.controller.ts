@@ -97,6 +97,43 @@ export class ComponentLibrariesController {
       throw new BadRequestException("Định dạng file không hợp lệ.");
     }
     const name = (payload.name ?? "Imported").trim();
+
+    // Validate the WHOLE payload before touching the DB. Previously a
+    // component missing `type`/`label` (NOT NULL columns) or with a
+    // non-array `tags` blew up with a raw 500 AFTER the library row was
+    // created — every retry then failed with "library already exists"
+    // until someone deleted the empty library by hand.
+    const components = payload.components ?? [];
+    if (!Array.isArray(components)) {
+      throw new BadRequestException("Field `components` phải là mảng.");
+    }
+    const seenTypes = new Set<string>();
+    for (const [i, c] of components.entries()) {
+      if (
+        !c ||
+        typeof c.type !== "string" ||
+        !c.type.trim() ||
+        typeof c.label !== "string" ||
+        !c.label.trim()
+      ) {
+        throw new BadRequestException(`Component ${i + 1} thiếu type/label.`);
+      }
+      if (c.tags !== undefined && !Array.isArray(c.tags)) {
+        throw new BadRequestException(`Component ${i + 1}: tags phải là mảng.`);
+      }
+      if (!validateComponentSchema(c.schema)) {
+        throw new BadRequestException(
+          `Component ${i + 1} có schema không hợp lệ.`,
+        );
+      }
+      if (seenTypes.has(c.type)) {
+        throw new BadRequestException(
+          `Component ${i + 1}: trùng type "${c.type}" trong cùng thư viện.`,
+        );
+      }
+      seenTypes.add(c.type);
+    }
+
     const existing = await this.db.client
       .select({ id: componentLibraries.id })
       .from(componentLibraries)
@@ -107,33 +144,47 @@ export class ComponentLibrariesController {
         `Thư viện "${name}" đã tồn tại. Đổi tên trong file trước khi import.`,
       );
     }
-    const [lib] = await this.db.client
-      .insert(componentLibraries)
-      .values({ name, description: payload.description ?? null })
-      .returning();
 
-    const components = payload.components ?? [];
-    if (components.length > 0) {
-      const valid = components.filter((c) => validateComponentSchema(c.schema));
-      if (valid.length > 0) {
-        await this.db.client.insert(libraryComponents).values(
-          valid.map((c) => ({
-            libraryId: lib.id,
-            type: c.type,
-            label: c.label,
-            category: c.category ?? "custom",
-            schema: c.schema as object,
-            tags: c.tags ?? [],
-          })),
-        );
-      }
-    }
+    // Library + components in one transaction: nothing is persisted unless
+    // everything succeeds.
+    const [lib, rows] = await this.db.client
+      .transaction(async (tx) => {
+        const [created] = await tx
+          .insert(componentLibraries)
+          .values({ name, description: payload.description ?? null })
+          .returning();
 
-    const rows = await this.db.client
-      .select()
-      .from(libraryComponents)
-      .where(eq(libraryComponents.libraryId, lib.id))
-      .orderBy(asc(libraryComponents.label));
+        if (components.length > 0) {
+          await tx.insert(libraryComponents).values(
+            components.map((c) => ({
+              libraryId: created.id,
+              type: c.type,
+              label: c.label,
+              category: c.category ?? "custom",
+              schema: c.schema as object,
+              tags: c.tags ?? [],
+            })),
+          );
+        }
+
+        const list = await tx
+          .select()
+          .from(libraryComponents)
+          .where(eq(libraryComponents.libraryId, created.id))
+          .orderBy(asc(libraryComponents.label));
+
+        return [created, list] as const;
+      })
+      .catch((error: unknown) => {
+        // Concurrent import of the same name: surface as 400, not 500.
+        if ((error as { code?: string })?.code === "23505") {
+          throw new BadRequestException(
+            `Thư viện "${name}" đã tồn tại. Đổi tên trong file trước khi import.`,
+          );
+        }
+        throw error;
+      });
+
     return toLibraryDto(lib, rows);
   }
 

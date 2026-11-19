@@ -72,6 +72,14 @@ function styleFor(el: ResolvedElement): Record<string, string> {
   if (raw.margin !== undefined) s.margin = px(raw.margin)!;
   if (raw.gap !== undefined) s.gap = px(raw.gap)!;
   if (raw.display) s.display = String(raw.display);
+  if (raw.gridTemplateColumns) s.gridTemplateColumns = String(raw.gridTemplateColumns);
+  // `layout.grid`: map the `columns` PROP to a real CSS grid. It used to
+  // render as wrapping flex, so switching device never reflowed the grid.
+  if (el.type === "layout.grid" && !raw.gridTemplateColumns) {
+    const cols = Number(el.props.columns) || 1;
+    s.display = "grid";
+    s.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  }
   if (raw.flex !== undefined) s.flex = String(raw.flex);
   if (raw.flexDirection) s.flexDirection = String(raw.flexDirection);
   if (raw.flexWrap) s.flexWrap = String(raw.flexWrap);

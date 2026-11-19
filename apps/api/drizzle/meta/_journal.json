@@ -71,6 +71,13 @@
       "when": 1794949202075,
       "tag": "0009_wandering_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795021306060,
+      "tag": "0010_fixed_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

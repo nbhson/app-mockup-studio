@@ -44,6 +44,7 @@ async function main() {
 
   await db.insert(versions).values({
     documentId: document.id,
+    projectId: project.id,
     snapshot: doc as unknown as object,
     note: "Initial",
     createdBy: demo.id,

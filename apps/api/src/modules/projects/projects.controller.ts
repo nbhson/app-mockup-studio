@@ -136,123 +136,129 @@ export class ProjectsController {
       .limit(1);
     if (!source) throw new NotFoundException(`Dự án ${id} không tồn tại`);
 
-    const [copy] = await this.db.client
-      .insert(projects)
-      .values({
-        name: `${source.name} (bản sao)`,
-        description: source.description,
-        ownerId: source.ownerId,
-        designSystemId: source.designSystemId,
-      })
-      .returning();
-
-    // Assets are project-scoped, so the duplicate needs its own rows; the
-    // document's image URLs are rewritten to the copied asset ids below.
-    const sourceAssets = await this.db.client
-      .select()
-      .from(assets)
-      .where(eq(assets.projectId, id));
-    const urlMap = new Map<string, string>();
-    for (const asset of sourceAssets) {
-      const [assetCopy] = await this.db.client
-        .insert(assets)
+    // ~3 + 2·N statements: everything or nothing. A failure mid-loop used to
+    // leave a partially copied, permanently reachable project behind.
+    const copy = await this.db.client.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(projects)
         .values({
-          projectId: copy.id,
-          fileName: asset.fileName,
-          mimeType: asset.mimeType,
-          size: asset.size,
-          data: asset.data,
+          name: `${source.name} (bản sao)`,
+          description: source.description,
+          ownerId: source.ownerId,
+          designSystemId: source.designSystemId,
         })
-        .returning({ id: assets.id });
-      urlMap.set(
-        `/api/projects/${id}/assets/${asset.id}/raw`,
-        `/api/projects/${copy.id}/assets/${assetCopy.id}/raw`,
-      );
-    }
+        .returning();
 
-    const sourcePages = await this.db.client
-      .select()
-      .from(pages)
-      .where(eq(pages.projectId, id))
-      .orderBy(asc(pages.position), asc(pages.createdAt));
+      // Assets are project-scoped, so the duplicate needs its own rows; the
+      // document's image URLs are rewritten to the copied asset ids below.
+      const sourceAssets = await tx
+        .select()
+        .from(assets)
+        .where(eq(assets.projectId, id));
+      const urlMap = new Map<string, string>();
+      for (const asset of sourceAssets) {
+        const [assetCopy] = await tx
+          .insert(assets)
+          .values({
+            projectId: created.id,
+            fileName: asset.fileName,
+            mimeType: asset.mimeType,
+            size: asset.size,
+            data: asset.data,
+          })
+          .returning({ id: assets.id });
+        urlMap.set(
+          `/api/projects/${id}/assets/${asset.id}/raw`,
+          `/api/projects/${created.id}/assets/${assetCopy.id}/raw`,
+        );
+      }
 
-    const pageIdMap = new Map<string, string>();
-    if (sourcePages.length > 0) {
-      for (const sourcePage of sourcePages) {
-        const [sourceDoc] = await this.db.client
+      const sourcePages = await tx
+        .select()
+        .from(pages)
+        .where(eq(pages.projectId, id))
+        .orderBy(asc(pages.position), asc(pages.createdAt));
+
+      const pageIdMap = new Map<string, string>();
+      if (sourcePages.length > 0) {
+        for (const sourcePage of sourcePages) {
+          const [sourceDoc] = await tx
+            .select()
+            .from(documents)
+            .where(eq(documents.id, sourcePage.documentId))
+            .limit(1);
+          if (!sourceDoc) continue;
+          const schema = remapAssetUrls(
+            sourceDoc.schema as unknown as UiDocument,
+            urlMap,
+          );
+          const [docCopy] = await tx
+            .insert(documents)
+            .values({
+              projectId: created.id,
+              schemaVersion: sourceDoc.schemaVersion,
+              schema,
+            })
+            .returning();
+          const [pageCopy] = await tx
+            .insert(pages)
+            .values({
+              projectId: created.id,
+              name: sourcePage.name,
+              slug: sourcePage.slug,
+              position: sourcePage.position,
+              documentId: docCopy.id,
+            })
+            .returning();
+          pageIdMap.set(sourcePage.id, pageCopy.id);
+        }
+      } else {
+        // Legacy project without pages: copy the document and wrap it in a page.
+        const [sourceDoc] = await tx
           .select()
           .from(documents)
-          .where(eq(documents.id, sourcePage.documentId))
+          .where(eq(documents.projectId, id))
           .limit(1);
-        if (!sourceDoc) continue;
-        const schema = remapAssetUrls(
-          sourceDoc.schema as unknown as UiDocument,
-          urlMap,
-        );
-        const [docCopy] = await this.db.client
-          .insert(documents)
-          .values({
-            projectId: copy.id,
-            schemaVersion: sourceDoc.schemaVersion,
-            schema,
-          })
-          .returning();
-        const [pageCopy] = await this.db.client
-          .insert(pages)
-          .values({
-            projectId: copy.id,
-            name: sourcePage.name,
-            slug: sourcePage.slug,
-            position: sourcePage.position,
-            documentId: docCopy.id,
-          })
-          .returning();
-        pageIdMap.set(sourcePage.id, pageCopy.id);
+        if (sourceDoc) {
+          const schema = remapAssetUrls(
+            sourceDoc.schema as unknown as UiDocument,
+            urlMap,
+          );
+          const [docCopy] = await tx
+            .insert(documents)
+            .values({
+              projectId: created.id,
+              schemaVersion: sourceDoc.schemaVersion,
+              schema,
+            })
+            .returning();
+          const [pageCopy] = await tx
+            .insert(pages)
+            .values({
+              projectId: created.id,
+              name: (schema as UiDocument).name?.trim() || "Home",
+              slug: "home",
+              position: 0,
+              documentId: docCopy.id,
+            })
+            .returning();
+          pageIdMap.set("legacy", pageCopy.id);
+        }
       }
-    } else {
-      // Legacy project without pages: copy the document and wrap it in a page.
-      const [sourceDoc] = await this.db.client
-        .select()
-        .from(documents)
-        .where(eq(documents.projectId, id))
-        .limit(1);
-      if (sourceDoc) {
-        const schema = remapAssetUrls(
-          sourceDoc.schema as unknown as UiDocument,
-          urlMap,
-        );
-        const [docCopy] = await this.db.client
-          .insert(documents)
-          .values({
-            projectId: copy.id,
-            schemaVersion: sourceDoc.schemaVersion,
-            schema,
-          })
-          .returning();
-        const [pageCopy] = await this.db.client
-          .insert(pages)
-          .values({
-            projectId: copy.id,
-            name: (schema as UiDocument).name?.trim() || "Home",
-            slug: "home",
-            position: 0,
-            documentId: docCopy.id,
-          })
-          .returning();
-        pageIdMap.set("legacy", pageCopy.id);
-      }
-    }
 
-    const mappedCurrent =
-      (source.currentPageId && pageIdMap.get(source.currentPageId)) ||
-      [...pageIdMap.values()][0] ||
-      null;
-    if (mappedCurrent) {
-      await this.db.client
-        .update(projects)
-        .set({ currentPageId: mappedCurrent })
-        .where(eq(projects.id, copy.id));
-    }
+      const mappedCurrent =
+        (source.currentPageId && pageIdMap.get(source.currentPageId)) ||
+        [...pageIdMap.values()][0] ||
+        null;
+      if (mappedCurrent) {
+        await tx
+          .update(projects)
+          .set({ currentPageId: mappedCurrent })
+          .where(eq(projects.id, created.id));
+      }
+
+      return created;
+    });
 
     return toDto(copy);
   }
@@ -265,9 +271,15 @@ export class ProjectsController {
   ): Promise<ProjectDto> {
     await this.access.assertProjectRole(id, "editor", req);
     const parsed = updateProjectSchema.parse(body);
+    // Drizzle skips `undefined` values, so omitted fields keep their current
+    // value. The old `?? null` wiped the description on every rename.
     const [row] = await this.db.client
       .update(projects)
-      .set({ name: parsed.name, description: parsed.description ?? null, updatedAt: new Date() })
+      .set({
+        name: parsed.name,
+        description: parsed.description === undefined ? undefined : parsed.description,
+        updatedAt: new Date(),
+      })
       .where(eq(projects.id, id))
       .returning();
     if (!row) throw new NotFoundException(`Dự án ${id} không tồn tại`);

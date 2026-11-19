@@ -29,9 +29,11 @@ import { AccessService } from "../../common/access.service";
 import {
   commentMessages,
   commentThreads,
+  documents,
   pages,
   projects,
 } from "../../db/schema";
+import { collectIds } from "@ai-mockup-studio/ui-schema";
 import {
   DEFAULT_COMMENT_AUTHOR,
   toCommentThreadDto,
@@ -108,27 +110,49 @@ export class CommentsController {
     await this.access.assertProjectRole(projectId, "viewer", req);
     await this.assertProject(projectId);
     const parsed = createCommentSchema.parse(body);
-    await this.assertPage(projectId, parsed.pageId);
+    const page = await this.assertPage(projectId, parsed.pageId);
 
-    const [thread] = await this.db.client
-      .insert(commentThreads)
-      .values({
-        projectId,
-        pageId: parsed.pageId,
-        nodeId: parsed.nodeId ?? null,
-        nodeLabel: parsed.nodeLabel ?? null,
-        createdBy: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
-      })
-      .returning();
+    // Validate the anchor: a thread pointing at a node that does not exist
+    // in the page's document can never be opened from the canvas again.
+    if (parsed.nodeId && page.documentId) {
+      const [doc] = await this.db.client
+        .select({ schema: documents.schema })
+        .from(documents)
+        .where(eq(documents.id, page.documentId))
+        .limit(1);
+      const root = (doc?.schema as { root?: { id: string } } | undefined)?.root;
+      if (root && !collectIds(root as never).includes(parsed.nodeId)) {
+        throw new BadRequestException(
+          `Component ${parsed.nodeId} không tồn tại trên trang này`,
+        );
+      }
+    }
 
-    const [message] = await this.db.client
-      .insert(commentMessages)
-      .values({
-        threadId: thread.id,
-        authorName: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
-        body: parsed.body,
-      })
-      .returning();
+    // Thread + first message must land together: a message-less thread
+    // breaks every list/resolve path that assumes messages[0] exists.
+    const [thread, message] = await this.db.client.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(commentThreads)
+        .values({
+          projectId,
+          pageId: parsed.pageId,
+          nodeId: parsed.nodeId ?? null,
+          nodeLabel: parsed.nodeLabel ?? null,
+          createdBy: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
+        })
+        .returning();
+
+      const [first] = await tx
+        .insert(commentMessages)
+        .values({
+          threadId: created.id,
+          authorName: parsed.authorName ?? DEFAULT_COMMENT_AUTHOR,
+          body: parsed.body,
+        })
+        .returning();
+
+      return [created, first] as const;
+    });
 
     return toCommentThreadDto(thread, [message]);
   }
@@ -218,12 +242,16 @@ export class CommentsController {
     if (!project) throw new NotFoundException(`Dự án ${projectId} không tồn tại`);
   }
 
-  private async assertPage(projectId: string, pageId: string): Promise<void> {
+  private async assertPage(
+    projectId: string,
+    pageId: string,
+  ): Promise<{ id: string; documentId: string | null }> {
     const [page] = await this.db.client
-      .select({ id: pages.id })
+      .select({ id: pages.id, documentId: pages.documentId })
       .from(pages)
       .where(and(eq(pages.id, pageId), eq(pages.projectId, projectId)))
       .limit(1);
     if (!page) throw new NotFoundException(`Trang ${pageId} không tồn tại`);
+    return page;
   }
 }

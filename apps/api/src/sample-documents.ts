@@ -43,12 +43,28 @@ export function buildSampleDashboard(name = "CRM Dashboard Demo"): UiDocument {
       name: name,
       props: { padding: 0 },
       styles: { flexDirection: "row", height: 900, backgroundColor: "#F8FAFC" },
+      // Preview overrides so the tablet/mobile device tabs visibly reflow
+      // the demo: sidebar stacks, grid loses columns, paddings shrink.
+      responsive: {
+        tablet: { height: "auto" },
+        mobile: { flexDirection: "column", height: "auto" },
+      },
       children: [
         {
           id: "sb-main",
           type: "layout.sidebar",
           props: { width: 260, collapsible: true, title: "CRM App" },
           styles: { width: 260, padding: 16, gap: 8, flexDirection: "column", backgroundColor: "#F1F5F9" },
+          responsive: {
+            tablet: { width: 200 },
+            mobile: {
+              width: "100%",
+              height: "auto",
+              flexDirection: "row",
+              gap: 16,
+              padding: 12,
+            },
+          },
           children: [
             {
               id: "sb-item-1",
@@ -81,6 +97,10 @@ export function buildSampleDashboard(name = "CRM Dashboard Demo"): UiDocument {
           type: "layout.container",
           props: { padding: 24 },
           styles: { flexDirection: "column", gap: 16, padding: 24, flex: 1 },
+          responsive: {
+            tablet: { padding: 16 },
+            mobile: { padding: 12, gap: 12 },
+          },
           children: [
             {
               id: "hdr-overview",
@@ -92,6 +112,10 @@ export function buildSampleDashboard(name = "CRM Dashboard Demo"): UiDocument {
               type: "layout.grid",
               props: { columns: 4, gap: 12 },
               styles: { gap: 12 },
+              responsive: {
+                tablet: { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" },
+                mobile: { gridTemplateColumns: "1fr" },
+              },
               children: [
                 {
                   id: "stat-revenue",

@@ -10,7 +10,7 @@ import {
   Res,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type {
   AssetDto,
   AssetListResponse,
@@ -129,12 +129,16 @@ export class AssetsController {
   ): Promise<{ ok: boolean }> {
     await this.access.assertProjectRole(projectId, "editor", req);
     await this.assertProject(projectId);
+    // Scope the delete by BOTH project and asset id: an editor of one project
+    // must not destroy another project's asset (the row used to be deleted
+    // before the ownership check, turning a cross-tenant DELETE into a no-op
+    // 404 on an already-dead row).
     const deleted = await this.db.client
       .delete(assets)
-      .where(eq(assets.id, assetId))
+      .where(and(eq(assets.projectId, projectId), eq(assets.id, assetId)))
       .returning({ id: assets.id, projectId: assets.projectId });
 
-    if (deleted.length === 0 || deleted[0].projectId !== projectId) {
+    if (deleted.length === 0) {
       throw new NotFoundException(`Ảnh ${assetId} không tồn tại`);
     }
     return { ok: true };

@@ -190,6 +190,9 @@ describe("sanitizeResponsiveStyles", () => {
       flexDirection: "column",
       flexWrap: "wrap",
       opacity: 0.5,
+      // gridTemplateColumns is a real UiStyles key (layout.grid reflow),
+      // so it must survive sanitization; unknown keys like `position` do not.
+      gridTemplateColumns: "1fr 1fr",
     });
   });
 

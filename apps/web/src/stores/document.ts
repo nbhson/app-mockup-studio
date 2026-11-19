@@ -100,6 +100,8 @@ export const useDocumentStore = defineStore("document", () => {
   // response is stale — keep the document dirty and schedule another save.
   let editRevision = 0;
   let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The in-flight `save()` promise, so re-entrant callers can await it. */
+  let inflightSave: Promise<void> | null = null;
 
   function cancelAutosave() {
     if (autosaveTimer) {
@@ -272,23 +274,36 @@ export const useDocumentStore = defineStore("document", () => {
 
   async function load(project: string) {
     cancelAutosave();
+    // Flush the previous project's unsaved edits before replacing state:
+    // otherwise the last ≤1.2s of work (or everything while autosave is
+    // disabled by a conflict) is silently discarded on a project switch.
+    if (
+      isDirty.value &&
+      projectId.value &&
+      projectId.value !== project &&
+      !saveConflict.value
+    ) {
+      await save().catch(() => undefined);
+    }
     isLoading.value = true;
     try {
-      projectId.value = project;
       // Load pages first: the endpoint lazily wraps legacy single-document
       // projects in a home page, so the document request below is race-free.
       const pageList = await api.get<PageListResponse>(
         `/projects/${project}/pages`,
       );
-      pages.value = pageList.pages;
-      currentPageId.value = pageList.currentPageId;
-
       const res = await api.get<{
         currentPageId: string;
         document: UiDocument | null;
         updatedAt: string;
         revision: number;
       }>(`/projects/${project}/document`);
+      // Only adopt the new project once both fetches succeeded: a failed
+      // load must not leave the previous document under the new project id,
+      // where the next edit would save the old tree into the new project.
+      projectId.value = project;
+      pages.value = pageList.pages;
+      currentPageId.value = pageList.currentPageId;
       document.value = res.document;
       if (res.currentPageId) currentPageId.value = res.currentPageId;
       if (
@@ -318,6 +333,9 @@ export const useDocumentStore = defineStore("document", () => {
       editRevision = 0;
     } finally {
       isLoading.value = false;
+      // `document.value = …` fires the autosave watcher (pre-flush) while the
+      // OLD isDirty may still be true; never leave an armed timer after a load.
+      cancelAutosave();
     }
   }
 
@@ -420,6 +438,9 @@ export const useDocumentStore = defineStore("document", () => {
   /** Delete a page. Deleting the active page opens the next remaining one. */
   async function deletePage(pageId: string): Promise<void> {
     if (!projectId.value) return;
+    // The pending autosave targets the page being destroyed; drop it and
+    // let `applyPageDocument` below rebase the revision on the replacement.
+    cancelAutosave();
     const wasActive = pageId === currentPageId.value;
     const list = await api.delete<PageListResponse>(
       `/projects/${projectId.value}/pages/${pageId}`,
@@ -533,49 +554,70 @@ export const useDocumentStore = defineStore("document", () => {
     markDirty();
   }
 
-  async function save() {
+  async function save(force = false): Promise<void> {
     if (!projectId.value || !document.value) return;
-    if (isSaving.value) {
-      // A save is already in flight — retry shortly after it completes.
-      scheduleAutosave(400);
-      return;
+    if (!isDirty.value && !force) return;
+    if (inflightSave) {
+      // A save is already in flight — await it instead of returning early,
+      // so callers that `await save()` then check `isDirty` (switchPage,
+      // applyDesignSystem, restoreVersion) see the real outcome.
+      return inflightSave;
     }
-    isSaving.value = true;
-    saveError.value = null;
+    // Pin the response to the project/page the save started for. Without
+    // this, switching projects mid-save let the late response stamp the NEW
+    // project with the OLD revision and mark it clean — the next save then
+    // silently overwrote the new project's document.
+    const targetProject = projectId.value;
+    const targetPage = currentPageId.value;
     const rev = editRevision;
-    try {
-      const res = await api.post<DocumentResponse>(
-        `/projects/${projectId.value}/document`,
-        { document: document.value, baseVersion: baseVersion.value },
-      );
-      // The first save of a brand-new project creates its home page.
-      if (res.currentPageId && res.currentPageId !== currentPageId.value) {
-        currentPageId.value = res.currentPageId;
-        await loadPages().catch(() => undefined);
+    inflightSave = (async () => {
+      isSaving.value = true;
+      saveError.value = null;
+      try {
+        const res = await api.post<DocumentResponse>(
+          `/projects/${targetProject}/document`,
+          { document: document.value, baseVersion: baseVersion.value },
+        );
+        if (
+          projectId.value !== targetProject ||
+          currentPageId.value !== targetPage
+        ) {
+          // State moved on while saving; applying this response corrupts it.
+          return;
+        }
+        // The first save of a brand-new project creates its home page.
+        if (res.currentPageId && res.currentPageId !== currentPageId.value) {
+          currentPageId.value = res.currentPageId;
+          await loadPages().catch(() => undefined);
+        }
+        baseVersion.value = String(res.revision);
+        saveConflict.value = false;
+        lastSavedAt.value = new Date(res.updatedAt);
+        if (editRevision === rev) {
+          isDirty.value = false;
+        } else {
+          // New edits landed while saving; keep dirty and save again.
+          scheduleAutosave(200);
+        }
+      } catch (e) {
+        if (e instanceof ApiError && e.statusCode === 409) {
+          // Another user saved after our last read. Stop autosave and ask the
+          // user to reload; never clobber their version.
+          if (projectId.value === targetProject) {
+            saveConflict.value = true;
+            saveError.value =
+              "Document đã được người khác cập nhật. Tải bản mới nhất để tiếp tục.";
+            cancelAutosave();
+          }
+        } else if (projectId.value === targetProject) {
+          saveError.value = e instanceof Error ? e.message : "Save failed";
+        }
+      } finally {
+        isSaving.value = false;
+        inflightSave = null;
       }
-      baseVersion.value = String(res.revision);
-      saveConflict.value = false;
-      lastSavedAt.value = new Date(res.updatedAt);
-      if (editRevision === rev) {
-        isDirty.value = false;
-      } else {
-        // New edits landed while saving; keep dirty and save again.
-        scheduleAutosave(200);
-      }
-    } catch (e) {
-      if (e instanceof ApiError && e.statusCode === 409) {
-        // Another user saved after our last read. Stop autosave and ask the
-        // user to reload; never clobber their version.
-        saveConflict.value = true;
-        saveError.value =
-          "Document đã được người khác cập nhật. Tải bản mới nhất để tiếp tục.";
-        cancelAutosave();
-      } else {
-        saveError.value = e instanceof Error ? e.message : "Save failed";
-      }
-    } finally {
-      isSaving.value = false;
-    }
+    })();
+    return inflightSave;
   }
 
   /** Discard local state and load the server's latest document after a 409. */
@@ -682,9 +724,12 @@ export const useDocumentStore = defineStore("document", () => {
     }
   }
 
-  // Autosave 1.2s after the last mutation (requests are debounced).
+  // Autosave 1.2s after the last mutation (requests are debounced). Never
+  // re-arm while a load is in flight: assigning `document` during `load()`
+  // fires this watcher before `isDirty` is reset, and the phantom save would
+  // bump the revision of an untouched document.
   watch(document, () => {
-    if (isDirty.value) scheduleAutosave();
+    if (isDirty.value && !isLoading.value) scheduleAutosave();
   });
   onScopeDispose(cancelAutosave);
 

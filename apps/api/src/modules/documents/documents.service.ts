@@ -85,25 +85,35 @@ export class DocumentsService {
     let savedRevision: number;
 
     if (!page) {
-      const [doc] = await this.db.client
-        .insert(documents)
-        .values({
+      // Document + home page must be created atomically: a failed page insert
+      // used to leave an orphan document that `ensureHomePage` could later
+      // promote as the project's "Home" with arbitrary content.
+      const [doc, created] = await this.db.client.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(documents)
+          .values({
+            projectId,
+            schemaVersion: parsed.document.schemaVersion,
+            schema: parsed.document as unknown as object,
+          })
+          .returning();
+        const slug = await uniqueSlug(
+          { client: tx } as unknown as DbService,
           projectId,
-          schemaVersion: parsed.document.schemaVersion,
-          schema: parsed.document as unknown as object,
-        })
-        .returning();
-      const slug = await uniqueSlug(this.db, projectId, "home");
-      const [created] = await this.db.client
-        .insert(pages)
-        .values({
-          projectId,
-          name: parsed.document.name?.trim() || "Home",
-          slug,
-          position: 0,
-          documentId: doc.id,
-        })
-        .returning();
+          "home",
+        );
+        const [row] = await tx
+          .insert(pages)
+          .values({
+            projectId,
+            name: parsed.document.name?.trim() || "Home",
+            slug,
+            position: 0,
+            documentId: inserted.id,
+          })
+          .returning();
+        return [inserted, row] as const;
+      });
       page = created;
       savedAt = doc.updatedAt;
       savedRevision = doc.revision;
@@ -147,6 +157,7 @@ export class DocumentsService {
       if (shouldSnapshot) {
         await this.db.client.insert(versions).values({
           documentId: existing.id,
+          projectId: existing.projectId,
           snapshot: existing.schema as object,
           note: "Autosave",
         });

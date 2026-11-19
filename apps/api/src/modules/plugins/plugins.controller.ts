@@ -16,7 +16,7 @@ import type {
   PluginRunResult,
   RunPluginInput,
 } from "@ai-mockup-studio/shared-types";
-import { runPluginSchema } from "@ai-mockup-studio/validators";
+import { runPluginSchema, uiDocumentSchema } from "@ai-mockup-studio/validators";
 import { runPlugin as runSandbox, PluginSandboxError } from "@ai-mockup-studio/plugins";
 import { PLUGIN_CATALOG, findPlugin } from "@ai-mockup-studio/plugins";
 import type { PluginManifest } from "@ai-mockup-studio/plugins";
@@ -106,9 +106,17 @@ export class PluginsController {
       result.updatedDocument !== null &&
       !result.timedOut
     ) {
+      // A plugin's replacement must pass the same schema gate as every other
+      // document write. Without this, a malformed sandbox result (`as any`)
+      // became the live canvas for every collaborator.
+      const validated = uiDocumentSchema.safeParse(result.updatedDocument);
+      if (!validated.success) {
+        throw new BadRequestException(
+          `Plugin trả về document không hợp lệ: ${validated.error.issues[0]?.message ?? "schema"}`,
+        );
+      }
       const updated = await this.documents.saveDocument(projectId, {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        document: result.updatedDocument as any,
+        document: validated.data,
         baseVersion: String(current.revision),
         actor: user,
       });

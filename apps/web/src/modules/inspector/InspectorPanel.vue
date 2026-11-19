@@ -40,13 +40,25 @@ const height = ref<number | null>(null);
 const padding = ref<number | null>(null);
 const color = ref<string | null>(null);
 
+// Watch the individual primitives, not the whole (fresh-object) computed:
+// an unrelated document change (undo, AI patch, theme edit) used to reset
+// in-progress typing in these inputs even when the selected node's values
+// had not changed at all.
 watch(
-  effectiveStyles,
-  (styles) => {
-    width.value = typeof styles.width === "number" ? styles.width : null;
-    height.value = typeof styles.height === "number" ? styles.height : null;
-    padding.value = typeof styles.padding === "number" ? styles.padding : null;
-    color.value = (styles.color as string) ?? (styles.backgroundColor as string) ?? null;
+  [
+    () => effectiveStyles.value.width,
+    () => effectiveStyles.value.height,
+    () => effectiveStyles.value.padding,
+    () =>
+      (effectiveStyles.value.color as string) ??
+      (effectiveStyles.value.backgroundColor as string) ??
+      null,
+  ],
+  ([w, h, p, c]) => {
+    width.value = typeof w === "number" ? w : null;
+    height.value = typeof h === "number" ? h : null;
+    padding.value = typeof p === "number" ? p : null;
+    color.value = c;
   },
   { immediate: true },
 );
@@ -99,22 +111,36 @@ function clearOverride(key: keyof UiStyles) {
   doc.mutate(next, `Xóa override ${key} (${mode})`);
 }
 
-function onWidth(e: Event) {
-  const v = Number((e.target as HTMLInputElement).value);
+/** Empty input means "auto": REMOVE the style. `Number("")` is 0, and the
+ *  old code committed 0 — collapsing the component instead of clearing it. */
+function onNumeric(key: "width" | "height" | "padding", e: Event) {
+  const raw = (e.target as HTMLInputElement).value.trim();
+  if (raw === "") {
+    if (doc.viewportMode === "desktop") {
+      if (key === "width" && width.value === null) return;
+      if (key === "height" && height.value === null) return;
+      if (key === "padding" && padding.value === null) return;
+      commit({ [key]: undefined }, `Bỏ ${key}`);
+    } else if (hasOverride(key)) {
+      clearOverride(key);
+    }
+    return;
+  }
+  const v = Number(raw);
   if (!Number.isFinite(v)) return;
-  commit({ width: v }, "Sửa width");
+  commit({ [key]: v }, `Sửa ${key}`);
+}
+
+function onWidth(e: Event) {
+  onNumeric("width", e);
 }
 
 function onHeight(e: Event) {
-  const v = Number((e.target as HTMLInputElement).value);
-  if (!Number.isFinite(v)) return;
-  commit({ height: v }, "Sửa height");
+  onNumeric("height", e);
 }
 
 function onPadding(e: Event) {
-  const v = Number((e.target as HTMLInputElement).value);
-  if (!Number.isFinite(v)) return;
-  commit({ padding: v }, "Sửa padding");
+  onNumeric("padding", e);
 }
 
 function onColor(e: Event) {

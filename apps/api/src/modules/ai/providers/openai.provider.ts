@@ -19,8 +19,14 @@ import type {
 export class OpenAIProviderService implements AIProviderService {
   private readonly logger = new Logger(OpenAIProviderService.name);
   readonly config: AIProviderConfig;
+  private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
+    // LLM calls must never hang forever: without a timeout a stalled
+    // endpoint blocks the request, skips the retry loop, and the UI sits on
+    // "processing" with no fallback. Override with AI_TIMEOUT_MS (5s–180s).
+    const raw = Number(this.configService.get<string>("AI_TIMEOUT_MS"));
+    this.timeoutMs = Number.isFinite(raw) && raw >= 5_000 && raw <= 180_000 ? raw : 45_000;
     const baseURL = (this.configService.get<string>("OPENAI_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     const apiKey = this.configService.get<string>("OPENAI_API_KEY");
     const model = this.configService.get<string>("OPENAI_MODEL") ?? "gpt-4o-mini";
@@ -94,7 +100,7 @@ export class OpenAIProviderService implements AIProviderService {
         max_tokens: opts?.maxTokens ?? 4000,
         response_format: responseFormat,
       }),
-      signal: opts?.signal,
+      signal: opts?.signal ?? AbortSignal.timeout(this.timeoutMs),
     });
 
     if (!res.ok) {

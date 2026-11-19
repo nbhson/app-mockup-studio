@@ -68,6 +68,8 @@ export interface MetricsSnapshot {
 }
 
 const MAX_LATENCY_SAMPLES = 2048;
+const MAX_ROUTES = 200;
+const MAX_METHODS = 32;
 
 function emptyAiMetric(): AiMetric {
   return {
@@ -119,9 +121,18 @@ export class MetricsService {
   recordRequest(method: string, route: string, status: number, durationMs: number): void {
     this.totalRequests += 1;
     this.byStatus.set(status, (this.byStatus.get(status) ?? 0) + 1);
-    this.byMethod.set(method, (this.byMethod.get(method) ?? 0) + 1);
+    // Cap the method/route cardinality: attacker-controlled methods and
+    // unmatched paths must not grow these maps without bound.
+    let methodToken = method;
+    if (!this.byMethod.has(methodToken) && this.byMethod.size >= MAX_METHODS) {
+      methodToken = "OTHER";
+    }
+    this.byMethod.set(methodToken, (this.byMethod.get(methodToken) ?? 0) + 1);
 
-    const key = `${method} ${route}`;
+    let key = `${methodToken} ${route}`;
+    if (!this.routes.has(key) && this.routes.size >= MAX_ROUTES) {
+      key = `${methodToken} :other`;
+    }
     const metric = this.routes.get(key) ?? {
       method,
       route,

@@ -271,6 +271,12 @@ async function compare(version: VersionSummaryDto) {
               </div>
             </li>
           </ul>
+          <p
+            v-if="doc.versions.length >= 50"
+            class="px-2 pt-2 text-center text-[11px] text-slate-400"
+          >
+            Chỉ hiển thị 50 phiên bản gần nhất.
+          </p>
         </div>
 
         <p v-if="actionError" class="border-t border-red-100 bg-red-50 px-4 py-2 text-xs text-red-600">

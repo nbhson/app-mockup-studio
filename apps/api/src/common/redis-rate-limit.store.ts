@@ -50,11 +50,15 @@ export class RedisRateLimitStore implements RateLimitStore {
 
     try {
       const count = await client.incr(key);
-      if (count === 1) {
-        // First hit of the window: (re)arm the expiry so the key never lingers.
+      let ttlMs = await client.pTTL(key).catch(() => windowMs);
+      if (count === 1 || ttlMs < 0) {
+        // First hit of the window: (re)arm the expiry. Also re-arm whenever
+        // the key has no TTL — a PEXPIRE lost to a crash/reconnect between
+        // INCR and PEXPIRE would otherwise lock this IP out forever, because
+        // `count` keeps growing on a key that never expires.
         await client.pExpire(key, windowMs).catch(() => undefined);
+        ttlMs = windowMs;
       }
-      const ttlMs = await client.pTTL(key).catch(() => windowMs);
       return {
         allowed: count <= limit,
         retryAfterSeconds: Math.ceil(ttlMs / 1000),

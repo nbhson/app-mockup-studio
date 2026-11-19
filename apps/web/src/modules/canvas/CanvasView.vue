@@ -302,10 +302,16 @@ const selectionRect = computed(() => {
 const secondarySelectionRects = computed(() => {
   void layoutTick.value;
   if (!doc.document) return [];
+  // Keyed by node id, not position: two siblings can share a rect (overlapping
+  // or zero-size nodes) and a duplicate Vue key patches a stale outline onto
+  // the wrong node when the selection changes.
   return doc.selectedIds
     .filter((id) => id !== doc.selectedId)
-    .map((id) => nodeRect(id))
-    .filter((r): r is { left: number; top: number; width: number; height: number } => r !== null);
+    .map((id) => ({ id, rect: nodeRect(id) }))
+    .filter(
+      (entry): entry is { id: string; rect: { left: number; top: number; width: number; height: number } } =>
+        entry.rect !== null,
+    );
 });
 
 watch([() => doc.document, () => doc.selectedId, () => doc.selectedIds], async () => {
@@ -599,7 +605,7 @@ function onKeydown(e: KeyboardEvent) {
   // Save works everywhere (including from an input).
   if (mod && key === "s") {
     e.preventDefault();
-    void doc.save();
+    void doc.save(true);
     return;
   }
   if (isTypingTarget(e.target)) return;
@@ -803,21 +809,21 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex h-full flex-col">
     <div
-      class="flex h-9 shrink-0 items-center gap-1 border-b border-ds-border bg-white/90 px-2 text-xs"
+      class="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-ds-border bg-white/90 px-2 text-xs"
     >
       <button
-        class="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+        class="shrink-0 whitespace-nowrap rounded px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
         title="Quay lại danh sách dự án"
         @click="router.push('/projects')"
       >
         ← Dự án
       </button>
 
-      <div class="mx-auto flex items-center gap-1">
+      <div class="mx-auto flex shrink-0 items-center gap-1">
         <button
           v-for="device in deviceOptions"
           :key="device.id"
-          class="rounded px-2 py-1 font-medium transition-colors"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors"
           :class="
             previewDevice === device.id
               ? 'bg-blue-50 text-blue-700'
@@ -841,7 +847,7 @@ onBeforeUnmount(() => {
         </span>
       </div>
 
-      <div class="flex items-center gap-1">
+      <div class="flex shrink-0 items-center gap-1">
         <PresenceBar :project-id="doc.projectId" class="mr-1" />
         <span
           v-if="exportError || duplicateError"
@@ -851,7 +857,7 @@ onBeforeUnmount(() => {
           {{ exportError ?? duplicateError }}
         </span>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document || duplicating || doc.isSaving"
           :title="
             doc.isDirty
@@ -863,7 +869,7 @@ onBeforeUnmount(() => {
           {{ duplicating ? "…" : "⧉ Nhân bản trang" }}
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Tạo link xem trước công khai hoặc có mật khẩu"
           @click="showShare = true"
@@ -871,7 +877,7 @@ onBeforeUnmount(() => {
           🔗 Chia sẻ
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Bình luận và review theo element hoặc toàn trang"
           @click="showComments = true"
@@ -879,14 +885,14 @@ onBeforeUnmount(() => {
           💬 Bình luận
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           title="Quản lý và áp dụng design system cho toàn project"
           @click="showDesignSystems = true"
         >
           🎛️ Design system
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Thư viện component dùng lại và chia sẻ"
           @click="showComponentLibraries = true"
@@ -894,7 +900,7 @@ onBeforeUnmount(() => {
           🧱 Component library
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.projectId"
           title="Quản lý thành viên và phân quyền dự án"
           @click="showMembers = true"
@@ -902,7 +908,7 @@ onBeforeUnmount(() => {
           👥 Thành viên
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Xuất code HTML / React / Vue"
           @click="showCode = true"
@@ -910,7 +916,7 @@ onBeforeUnmount(() => {
           Code
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Sinh component + CSS class + design token, chỉnh sửa trước khi tải"
           @click="showDesignCode = true"
@@ -918,7 +924,7 @@ onBeforeUnmount(() => {
           🧩 Design → Code
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Điền dữ liệu mẫu cho stats, bảng, biểu đồ và nội dung placeholder"
           @click="showDummyData = true"
@@ -926,21 +932,21 @@ onBeforeUnmount(() => {
           🧪 Dữ liệu mẫu
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           title="Dựng mockup từ ảnh chụp màn hình"
           @click="showImageToUi = true"
         >
           🖼 Ảnh → UI
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           title="Dựng mockup từ một trang web công khai"
           @click="showUrlToUi = true"
         >
           🔗 URL → UI
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Trích bảng màu và theme từ ảnh mẫu"
           @click="showDesignRef = true"
@@ -948,7 +954,7 @@ onBeforeUnmount(() => {
           🎨 Design ref
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Đề xuất override tablet/mobile an toàn"
           @click="showResponsive = true"
@@ -956,7 +962,7 @@ onBeforeUnmount(() => {
           📐 Responsive
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="AI đánh giá thiết kế: hierarchy, spacing, contrast, token"
           @click="showCritique = true"
@@ -964,7 +970,7 @@ onBeforeUnmount(() => {
           ✨ Critique
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Kiểm tra accessibility theo WCAG AA"
           @click="showA11y = true"
@@ -972,7 +978,7 @@ onBeforeUnmount(() => {
           ♿ Kiểm tra
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Kiểm tra style lệch design token"
           @click="showConsistency = true"
@@ -980,7 +986,7 @@ onBeforeUnmount(() => {
           🎨 Nhất quán
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="!doc.document"
           title="Thư viện ảnh của dự án"
           @click="showAssets = true"
@@ -990,7 +996,7 @@ onBeforeUnmount(() => {
         <button
           v-for="fmt in imageFormats"
           :key="fmt"
-          class="rounded px-2 py-1 font-medium uppercase text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium uppercase text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="exporting !== null || !doc.document"
           :title="`Xuất ${fmt.toUpperCase()}`"
           @click="exportImage(fmt)"
@@ -998,7 +1004,7 @@ onBeforeUnmount(() => {
           {{ exporting === fmt ? "…" : fmt }}
         </button>
         <button
-          class="rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          class="shrink-0 whitespace-nowrap rounded px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           :disabled="exporting !== null || !doc.document"
           title="Xuất JSON UI Schema"
           @click="exportJson"
@@ -1100,7 +1106,7 @@ onBeforeUnmount(() => {
         <div
           ref="pageEl"
           data-page
-          class="relative bg-white shadow-sm"
+          class="relative overflow-hidden bg-white shadow-sm"
           :style="{
             width: `${previewWidth}px`,
             minHeight: `${doc.document.viewport.height}px`,
@@ -1116,15 +1122,15 @@ onBeforeUnmount(() => {
           />
 
           <div
-            v-for="rect in secondarySelectionRects"
-            :key="`${rect.left}x${rect.top}`"
+            v-for="entry in secondarySelectionRects"
+            :key="entry.id"
             data-export-ignore
             class="pointer-events-none absolute z-10 border border-dashed border-blue-400"
             :style="{
-              left: `${rect.left}px`,
-              top: `${rect.top}px`,
-              width: `${rect.width}px`,
-              height: `${rect.height}px`,
+              left: `${entry.rect.left}px`,
+              top: `${entry.rect.top}px`,
+              width: `${entry.rect.width}px`,
+              height: `${entry.rect.height}px`,
             }"
           />
 

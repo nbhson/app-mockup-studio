@@ -23,6 +23,8 @@ const canManage = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const busy = ref<string | null>(null);
+/** Bumped after a failed role change so the <select> re-syncs to server state. */
+const syncTick = ref(0);
 
 const addEmail = ref("");
 const addRole = ref<Exclude<ProjectRole, "owner">>("viewer");
@@ -85,6 +87,9 @@ async function changeRole(member: ProjectMemberDto, role: string) {
     );
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Không đổi được vai trò";
+    // The DOM <select> kept showing the REJECTED role (member.role never
+    // changed, so Vue saw no prop diff). Bump the key to force a re-sync.
+    syncTick.value += 1;
   } finally {
     busy.value = null;
   }
@@ -189,6 +194,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
                 </span>
                 <select
                   v-else
+                  :key="`${member.id}:${member.role}:${syncTick}`"
                   class="rounded border border-ds-border bg-white px-1.5 py-1 text-[11px] text-slate-600 disabled:opacity-40"
                   :value="member.role"
                   :disabled="busy === member.id"

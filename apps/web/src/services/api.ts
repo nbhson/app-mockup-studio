@@ -12,8 +12,13 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    // Merge, don't clobber: a caller passing custom headers (e.g.
+    // x-share-password) used to drop the default JSON content-type.
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers as Record<string, string> | undefined),
+    },
   });
   if (!res.ok) {
     let message = `HTTP ${res.status}`;

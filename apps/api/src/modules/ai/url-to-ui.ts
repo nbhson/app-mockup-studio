@@ -10,7 +10,7 @@
 
 import { BadRequestException } from "@nestjs/common";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import {
   SCHEMA_VERSION,
   componentRegistry,
@@ -42,6 +42,23 @@ export interface HtmlSnapshot {
 
 // --- SSRF protection -------------------------------------------------------
 
+// IPv6 reserved ranges are compared as BYTES via net.BlockList. The previous
+// string-prefix checks (`startsWith("fe80")`, …) missed link-local addresses
+// like `febf::1` (fe80::/10 is a 10-bit range), 6to4-encoded loopback
+// (`2002:7f00:1::1`) and every non-canonical spelling of the embedded-IPv4
+// ranges (`::ffff:0:0/96` and `::/96` — e.g. `::7f00:1`).
+const BLOCKED_V6 = (() => {
+  const list = new BlockList();
+  list.addSubnet("::", 96, "ipv6"); // IPv4-compatible + v4-mapped (::7f00:1, ::ffff:…)
+  list.addSubnet("::ffff:0:0", 96, "ipv6"); // explicitly the v4-mapped block
+  list.addAddress("::1", "ipv6"); // loopback
+  list.addSubnet("fc00::", 7, "ipv6"); // unique-local (fc00::/7 covers fc/fd)
+  list.addSubnet("fe80::", 10, "ipv6"); // link-local (fe80::–febf::)
+  list.addSubnet("2002::", 16, "ipv6"); // 6to4 (may encode a private v4 address)
+  list.addSubnet("ff00::", 8, "ipv6"); // multicast
+  return list;
+})();
+
 /** Block loopback, link-local, private, CGNAT, documentation and multicast IPs. */
 export function isPrivateIp(address: string): boolean {
   const version = isIP(address);
@@ -63,15 +80,13 @@ export function isPrivateIp(address: string): boolean {
     );
   }
   if (version === 6) {
+    // Embedded IPv4 written in dotted form (`::ffff:127.0.0.1`) must also be
+    // judged by its v4 bytes; the /96 blocklist above covers every other
+    // non-canonical spelling (`::7f00:1`, `::127.0.0.1`, …).
     const lower = address.toLowerCase();
-    if (lower === "::" || lower === "::1") return true;
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-    if (lower.startsWith("fe80")) return true;
-    if (lower.startsWith("::ffff:")) {
-      const tail = lower.slice("::ffff:".length);
-      return isIP(tail) === 4 ? isPrivateIp(tail) : true;
-    }
-    return false;
+    const embedded = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower)?.[1];
+    if (embedded && isIP(embedded) === 4) return isPrivateIp(embedded);
+    return BLOCKED_V6.check(lower, "ipv6");
   }
   return true;
 }

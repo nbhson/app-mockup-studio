@@ -170,12 +170,20 @@ export const commentMessages = pgTable("comment_messages", {
 
 export const versions = pgTable("versions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  documentId: text("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  // Snapshots belong to the project, not only to the (replaceable) document
+  // row: PUT /pages (AI multi-page) deletes document rows, and a cascading
+  // document FK silently erased the entire version history.
+  projectId: text("project_id").notNull().references(() => projects.id, {
+    onDelete: "cascade",
+  }),
+  documentId: text("document_id").references(() => documents.id, {
+    onDelete: "set null",
+  }),
   snapshot: jsonb("snapshot").notNull(),
   note: text("note"),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("versions_document_idx").on(t.documentId)]);
+}, (t) => [index("versions_document_idx").on(t.documentId), index("versions_project_idx").on(t.projectId)]);
 
 // plan/12 GĐ 5.4 — project assets (uploaded images). For the MVP the bytes are
 // stored base64-encoded in Postgres; swapping in object storage later only

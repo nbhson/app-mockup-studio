@@ -98,6 +98,10 @@ export async function ensureHomePage(
     .select()
     .from(documents)
     .where(eq(documents.projectId, projectId))
+    // Deterministic pick: with more than one legacy document, an unordered
+    // `limit 1` lets Postgres physical order decide which (possibly stale)
+    // document becomes "Home".
+    .orderBy(asc(documents.createdAt), asc(documents.id))
     .limit(1);
   if (!doc) return null;
 

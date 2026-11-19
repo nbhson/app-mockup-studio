@@ -352,7 +352,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
                     {{ system.name }}
                   </p>
                   <p class="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-400">
-                    {{ system.description ?? `${system.theme.mode} · ${system.theme.fontFamily}` }}
+                    {{ system.description?.trim() || `${system.theme.mode} · ${system.theme.fontFamily}` }}
                   </p>
                 </div>
                 <span

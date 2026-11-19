@@ -8,30 +8,48 @@ const router = useRouter();
 const projects = useProjectsStore();
 const form = reactive({ name: "", description: "" });
 
-onMounted(() => projects.list());
+onMounted(() => {
+  void projects.list().catch(() => undefined);
+});
 
 async function onCreate() {
   if (!form.name.trim()) return;
-  const project = await projects.create(form.name.trim(), form.description.trim());
-  form.name = "";
-  form.description = "";
-  router.push(`/workspace/${project.id}`);
+  try {
+    const project = await projects.create(form.name.trim(), form.description.trim());
+    form.name = "";
+    form.description = "";
+    router.push(`/workspace/${project.id}`);
+  } catch {
+    // store records `error`; the banner below shows it
+  }
 }
 
 async function onRename(project: ProjectDto) {
   const name = window.prompt("Tên dự án mới", project.name)?.trim();
   if (!name || name === project.name) return;
-  await projects.update(project.id, { name });
+  try {
+    await projects.update(project.id, { name });
+  } catch {
+    void projects.list().catch(() => undefined);
+  }
 }
 
 async function onDuplicate(project: ProjectDto) {
-  const copy = await projects.duplicate(project.id);
-  router.push(`/workspace/${copy.id}`);
+  try {
+    const copy = await projects.duplicate(project.id);
+    router.push(`/workspace/${copy.id}`);
+  } catch {
+    // error banner
+  }
 }
 
 async function onDelete(id: string) {
   if (!window.confirm("Xóa dự án này?")) return;
-  await projects.remove(id);
+  try {
+    await projects.remove(id);
+  } catch {
+    // error banner
+  }
 }
 </script>
 
@@ -48,12 +66,14 @@ async function onDelete(id: string) {
         v-model="form.name"
         class="rounded-md border border-ds-border px-3 py-2 text-sm outline-none focus:border-blue-500"
         placeholder="Tên dự án (vd: CRM Dashboard)"
+        maxlength="120"
         required
       />
       <input
         v-model="form.description"
         class="rounded-md border border-ds-border px-3 py-2 text-sm outline-none focus:border-blue-500"
         placeholder="Mô tả (tùy chọn)"
+        maxlength="2000"
       />
       <button
         class="self-start rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -61,6 +81,13 @@ async function onDelete(id: string) {
       >
         + Tạo dự án
       </button>
+      <p
+        v-if="projects.error"
+        class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600"
+        role="alert"
+      >
+        {{ projects.error }}
+      </p>
     </form>
 
     <div class="mt-6">

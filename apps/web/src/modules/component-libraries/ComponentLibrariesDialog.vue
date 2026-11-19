@@ -313,7 +313,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
                 </button>
               </div>
               <p class="mt-0.5 line-clamp-1 text-[10px] text-slate-400">
-                {{ lib.description ?? `${lib.components.length} components` }}
+                {{ lib.description?.trim() || `${lib.components.length} components` }}
               </p>
             </div>
           </div>

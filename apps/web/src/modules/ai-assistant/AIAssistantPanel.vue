@@ -34,7 +34,11 @@ async function submit() {
     });
   } else {
     // First message → full generation.
-    await ai.generate(prompt, (newDoc) => doc.setDocument(newDoc));
+    await ai.generate(
+      prompt,
+      (newDoc) => doc.setDocument(newDoc),
+      doc.viewportMode,
+    );
   }
   draft.value = "";
 }

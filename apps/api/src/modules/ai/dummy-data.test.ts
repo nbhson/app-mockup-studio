@@ -229,6 +229,28 @@ describe("sanitizeDummyProps", () => {
     });
     expect(clean).toEqual({ title: "Doanh thu" });
   });
+
+  it("drops a stats half-pair (items without values or vice versa)", () => {
+    expect(sanitizeDummyProps("dashboard.stats", { items: ["A", "B"] })).toBeNull();
+    expect(sanitizeDummyProps("dashboard.stats", { values: ["1"] })).toBeNull();
+  });
+
+  it("aligns headerless table rows to a common width", () => {
+    const clean = sanitizeDummyProps("dashboard.table", {
+      rows: [
+        ["a", "b", "c"],
+        ["d", "e"],
+      ],
+    }) as { rows?: string[][] };
+
+    // The narrowest row defines the grid; wider rows are dropped rather
+    // than silently truncated, so the table never renders ragged.
+    expect(clean.rows).toEqual([["d", "e"]]);
+  });
+
+  it("drops a chart kind when the title is missing", () => {
+    expect(sanitizeDummyProps("dashboard.chart", { kind: "bar" })).toBeNull();
+  });
 });
 
 describe("detectTopic", () => {
